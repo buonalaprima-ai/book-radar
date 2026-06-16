@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>📚 Book Radar — Autori</title>
+<style>
+    :root {
+        --bg: #0f1419;
+        --card: #1a212b;
+        --card2: #222c38;
+        --text: #e6edf3;
+        --muted: #9aa7b4;
+        --accent: #4a9eff;
+        --accent-dark: #2d7de0;
+        --danger: #ff5d5d;
+        --ok: #3fbf6a;
+        --border: #2c3742;
+        --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.5rem; margin: 8px 0 4px; }
+    h2 { font-size: 1.05rem; margin: 0 0 12px; color: var(--text); }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }
+    .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    label { display: block; font-size: 0.82rem; color: var(--muted); margin: 10px 0 4px; }
+    input[type="text"], input[type="password"] {
+        width: 100%;
+        padding: 11px 12px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        font-size: 1rem;
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    button {
+        cursor: pointer;
+        border: none;
+        border-radius: 8px;
+        padding: 11px 16px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        background: var(--accent);
+        color: #fff;
+        transition: background 0.15s;
+    }
+    button:hover { background: var(--accent-dark); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { background: var(--card2); color: var(--text); border: 1px solid var(--border); }
+    button.secondary:hover { background: var(--border); }
+    button.danger { background: transparent; color: var(--danger); padding: 6px 10px; font-size: 0.85rem; }
+    button.danger:hover { background: rgba(255,93,93,0.12); }
+    button.small { padding: 7px 12px; font-size: 0.85rem; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row > input { flex: 1; }
+    details > summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: var(--muted);
+        font-size: 0.9rem;
+        list-style: none;
+        user-select: none;
+    }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary::before { content: "⚙️ "; }
+    .author-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 12px;
+        background: var(--card2);
+        border-radius: 8px;
+        margin-bottom: 8px;
+    }
+    .author-name { font-weight: 600; }
+    .author-canonical { font-size: 0.8rem; color: var(--muted); }
+    .author-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .variant {
+        display: block;
+        padding: 12px;
+        background: var(--card2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 8px;
+        cursor: pointer;
+    }
+    .variant:hover { border-color: var(--accent); }
+    .variant input { margin-right: 8px; }
+    .variant-name { font-weight: 600; }
+    .variant-meta { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+    .msg { padding: 10px 12px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; }
+    .msg.error { background: rgba(255,93,93,0.12); color: var(--danger); border: 1px solid rgba(255,93,93,0.3); }
+    .msg.ok { background: rgba(63,191,106,0.12); color: var(--ok); border: 1px solid rgba(63,191,106,0.3); }
+    .msg.info { background: rgba(74,158,255,0.1); color: var(--accent); border: 1px solid rgba(74,158,255,0.25); }
+    .spinner {
+        display: inline-block; width: 16px; height: 16px;
+        border: 2px solid var(--muted); border-top-color: transparent;
+        border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none; }
+    .preview-book { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    .preview-book:last-child { border-bottom: none; }
+    .preview-date { color: var(--muted); font-size: 0.8rem; }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>📚 Book Radar</h1>
+    <div class="sub">Gestisci gli autori che il sistema controlla ogni giorno.</div>
+
+    <!-- IMPOSTAZIONI -->
+    <div class="card">
+        <details id="settingsBox">
+            <summary>Impostazioni (token GitHub, repo)</summary>
+            <div style="margin-top: 12px;">
+                <label for="token">GitHub token (Contents: Read and write)</label>
+                <input type="password" id="token" placeholder="github_pat_..." autocomplete="off" />
+                <label for="repo">Repository (owner/repo)</label>
+                <input type="text" id="repo" placeholder="utente/book-radar" />
+                <label for="branch">Branch</label>
+                <input type="text" id="branch" placeholder="main" />
+                <label for="gkey">Google Books API key (opzionale)</label>
+                <input type="password" id="gkey" placeholder="lascia vuoto se non serve" autocomplete="off" />
+                <div style="margin-top: 12px;" class="row">
+                    <button id="saveSettings">Salva impostazioni</button>
+                    <span class="muted">Salvate solo in questo browser.</span>
+                </div>
+            </div>
+        </details>
+    </div>
+
+    <div id="globalMsg"></div>
+
+    <!-- LISTA AUTORI -->
+    <div class="card">
+        <h2>Autori seguiti</h2>
+        <div id="authorsList"><span class="muted">Configura il token e premi "Ricarica".</span></div>
+        <div style="margin-top: 12px;">
+            <button class="secondary small" id="reload">↻ Ricarica</button>
+        </div>
+    </div>
+
+    <!-- AGGIUNGI AUTORE -->
+    <div class="card">
+        <h2>Aggiungi un autore</h2>
+        <div class="row">
+            <input type="text" id="searchInput" placeholder="es. Lovecraft" />
+            <button id="searchBtn">Cerca varianti</button>
+        </div>
+        <div id="addMsg"></div>
+        <div id="variants"></div>
+        <div id="addConfirm" class="hidden" style="margin-top: 12px;">
+            <label for="labelInput">Etichetta (come vuoi chiamarlo tu)</label>
+            <input type="text" id="labelInput" />
+            <div style="margin-top: 12px;">
+                <button id="confirmAdd">Aggiungi al repo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ANTEPRIMA -->
+    <div class="card" id="previewCard" style="display:none;">
+        <h2 id="previewTitle">Anteprima libri</h2>
+        <div id="previewBody"></div>
+    </div>
+
+    <div class="muted" style="text-align:center; margin: 24px 0;">
+        Le notifiche le manda lo script sul Mac. Qui gestisci solo la lista autori.
+    </div>
+</div>
+
+<script>
+// MARK: - Stato e costanti
+const LANG = "it";          // coerente con lo script: solo edizioni italiane
+const COUNTRY = "IT";
+const AUTHORS_PATH = "authors.json";
+const GB = "https://www.googleapis.com/books/v1/volumes";
+
+let settings = { token: "", repo: "", branch: "main", gkey: "" };
+let authors = [];            // contenuto corrente di authors.json
+let selectedVariant = null;  // variante autore scelta in fase di aggiunta
+
+// MARK: - Helpers base64 UTF-8 (per i contenuti GitHub)
+function utf8ToBase64(str) { return btoa(unescape(encodeURIComponent(str))); }
+function base64ToUtf8(b64) { return decodeURIComponent(escape(atob(b64.replace(/\n/g, "")))); }
+
+// MARK: - Messaggi UI
+function showMsg(elId, text, type) {
+    const el = document.getElementById(elId);
+    el.innerHTML = text ? `<div class="msg ${type}">${text}</div>` : "";
+}
+function spinner(text) { return `<span class="spinner"></span> ${text}`; }
+
+// MARK: - Impostazioni (localStorage)
+function loadSettings() {
+    try { settings = Object.assign(settings, JSON.parse(localStorage.getItem("bookradar") || "{}")); }
+    catch (e) { /* ignora */ }
+    document.getElementById("token").value = settings.token || "";
+    document.getElementById("repo").value = settings.repo || "";
+    document.getElementById("branch").value = settings.branch || "main";
+    document.getElementById("gkey").value = settings.gkey || "";
+}
+function saveSettings() {
+    settings.token = document.getElementById("token").value.trim();
+    settings.repo = document.getElementById("repo").value.trim();
+    settings.branch = (document.getElementById("branch").value.trim() || "main");
+    settings.gkey = document.getElementById("gkey").value.trim();
+    localStorage.setItem("bookradar", JSON.stringify(settings));
+    showMsg("globalMsg", "Impostazioni salvate.", "ok");
+    loadAuthors();
+}
+
+// MARK: - GitHub API
+function ghHeaders() {
+    return {
+        "Authorization": "Bearer " + settings.token,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    };
+}
+async function ghGetFile(path) {
+    const url = `https://api.github.com/repos/${settings.repo}/contents/${path}?ref=${settings.branch}`;
+    const res = await fetch(url, { headers: ghHeaders() });
+    if (res.status === 404) {
+        return null;
+    }
+    if (!res.ok) {
+        throw new Error(`GitHub ${res.status}: ${(await res.json()).message || res.statusText}`);
+    }
+    const data = await res.json();
+    return { content: base64ToUtf8(data.content), sha: data.sha };
+}
+async function ghPutFile(path, text, message) {
+    // Legge sempre lo SHA piu' recente subito prima di scrivere (riduce i conflitti).
+    const existing = await ghGetFile(path);
+    const body = {
+        message: message,
+        content: utf8ToBase64(text),
+        branch: settings.branch,
+    };
+    if (existing) {
+        body.sha = existing.sha;
+    }
+    const url = `https://api.github.com/repos/${settings.repo}/contents/${path}`;
+    const res = await fetch(url, { method: "PUT", headers: ghHeaders(), body: JSON.stringify(body) });
+    if (!res.ok) {
+        throw new Error(`GitHub ${res.status}: ${(await res.json()).message || res.statusText}`);
+    }
+    return res.json();
+}
+
+// MARK: - Caricamento e render lista autori
+async function loadAuthors() {
+    if (!settings.token || !settings.repo) {
+        showMsg("globalMsg", "Imposta token e repository nelle impostazioni.", "info");
+        return;
+    }
+    document.getElementById("authorsList").innerHTML = spinner("Carico authors.json...");
+    try {
+        const file = await ghGetFile(AUTHORS_PATH);
+        authors = file ? JSON.parse(file.content) : [];
+        renderAuthors();
+        showMsg("globalMsg", "", "");
+    } catch (e) {
+        document.getElementById("authorsList").innerHTML = "";
+        showMsg("globalMsg", "Errore nel caricamento: " + e.message, "error");
+    }
+}
+function renderAuthors() {
+    const box = document.getElementById("authorsList");
+    if (!authors.length) {
+        box.innerHTML = `<span class="muted">Nessun autore. Aggiungine uno qui sotto.</span>`;
+        return;
+    }
+    box.innerHTML = authors.map((a, i) => `
+        <div class="author-item">
+            <div>
+                <div class="author-name">${escapeHtml(a.name)}</div>
+                <div class="author-canonical">${escapeHtml(a.canonicalAuthor)}</div>
+            </div>
+            <div class="author-actions">
+                <button class="secondary small" onclick="previewAuthor(${i})">Anteprima</button>
+                <button class="danger" onclick="removeAuthor(${i})">Rimuovi</button>
+            </div>
+        </div>
+    `).join("");
+}
+function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// MARK: - Rimuovi autore
+async function removeAuthor(index) {
+    const a = authors[index];
+    if (!confirm(`Rimuovere "${a.name}"?`)) {
+        return;
+    }
+    showMsg("globalMsg", spinner("Rimuovo e aggiorno il repo..."), "info");
+    const updated = authors.filter((_, i) => i !== index);
+    try {
+        await ghPutFile(AUTHORS_PATH, JSON.stringify(updated, null, 2) + "\n", `chore: rimuovi autore ${a.name}`);
+        authors = updated;
+        renderAuthors();
+        showMsg("globalMsg", `"${a.name}" rimosso.`, "ok");
+    } catch (e) {
+        showMsg("globalMsg", "Errore: " + e.message, "error");
+    }
+}
+
+// MARK: - Google Books: ricerca varianti del nome
+function gbUrl(query, extra) {
+    let url = `${GB}?q=${encodeURIComponent(query)}&maxResults=40&printType=books`;
+    if (extra) { url += extra; }
+    if (settings.gkey) { url += `&key=${encodeURIComponent(settings.gkey)}`; }
+    return url;
+}
+async function searchVariants() {
+    const input = document.getElementById("searchInput").value.trim();
+    document.getElementById("variants").innerHTML = "";
+    document.getElementById("addConfirm").classList.add("hidden");
+    selectedVariant = null;
+    if (!input) {
+        return;
+    }
+    showMsg("addMsg", spinner("Cerco su Google Books..."), "info");
+    try {
+        const res = await fetch(gbUrl(input, `&langRestrict=${LANG}&country=${COUNTRY}`));
+        const data = await res.json();
+        const items = data.items || [];
+        // Raccoglie le varianti distinte del campo authors, con frequenza e titoli di esempio.
+        const variants = {};
+        for (const v of items) {
+            const info = v.volumeInfo || {};
+            const isItalian = info.language === LANG;
+            for (const author of (info.authors || [])) {
+                if (!variants[author]) {
+                    variants[author] = { name: author, count: 0, italianCount: 0, samples: [] };
+                }
+                variants[author].count++;
+                if (isItalian) { variants[author].italianCount++; }
+                if (variants[author].samples.length < 3 && info.title) {
+                    variants[author].samples.push(info.title);
+                }
+            }
+        }
+        const list = Object.values(variants).sort((a, b) => b.italianCount - a.italianCount || b.count - a.count);
+        if (!list.length) {
+            showMsg("addMsg", "Nessun autore trovato. Prova un altro testo.", "error");
+            return;
+        }
+        showMsg("addMsg", "Scegli la variante corretta (in cima quelle con più edizioni italiane):", "info");
+        document.getElementById("variants").innerHTML = list.map((v, i) => `
+            <label class="variant">
+                <input type="radio" name="variant" value="${i}" onchange="selectVariant(${i})" />
+                <span class="variant-name">${escapeHtml(v.name)}</span>
+                <div class="variant-meta">
+                    ${v.italianCount} ediz. IT · ${v.count} totali — ${escapeHtml(v.samples.join(" · "))}
+                </div>
+            </label>
+        `).join("");
+        window._variantList = list;
+    } catch (e) {
+        showMsg("addMsg", "Errore Google Books: " + e.message, "error");
+    }
+}
+function selectVariant(i) {
+    selectedVariant = window._variantList[i];
+    document.getElementById("labelInput").value = selectedVariant.name;
+    document.getElementById("addConfirm").classList.remove("hidden");
+}
+
+// MARK: - Conferma aggiunta autore
+async function confirmAdd() {
+    if (!selectedVariant) {
+        return;
+    }
+    const label = document.getElementById("labelInput").value.trim() || selectedVariant.name;
+    const canonical = selectedVariant.name;
+    if (authors.some(a => a.canonicalAuthor === canonical)) {
+        showMsg("addMsg", "Questo autore è già nella lista.", "error");
+        return;
+    }
+    const entry = {
+        name: label,
+        canonicalAuthor: canonical,
+        googleBooksQuery: `inauthor:"${canonical}"`,
+    };
+    showMsg("addMsg", spinner("Aggiungo e aggiorno il repo..."), "info");
+    const updated = authors.concat([entry]);
+    try {
+        await ghPutFile(AUTHORS_PATH, JSON.stringify(updated, null, 2) + "\n", `chore: aggiungi autore ${label}`);
+        authors = updated;
+        renderAuthors();
+        document.getElementById("variants").innerHTML = "";
+        document.getElementById("addConfirm").classList.add("hidden");
+        document.getElementById("searchInput").value = "";
+        showMsg("addMsg", `"${label}" aggiunto. Verrà inizializzato al prossimo controllo (nessuna notifica del catalogo storico).`, "ok");
+    } catch (e) {
+        showMsg("addMsg", "Errore: " + e.message, "error");
+    }
+}
+
+// MARK: - Anteprima libri italiani di un autore (come li vedrà lo script)
+async function previewAuthor(index) {
+    const a = authors[index];
+    const card = document.getElementById("previewCard");
+    card.style.display = "block";
+    document.getElementById("previewTitle").textContent = `Anteprima — ${a.name}`;
+    document.getElementById("previewBody").innerHTML = spinner("Carico i libri italiani...");
+    card.scrollIntoView({ behavior: "smooth" });
+    try {
+        const res = await fetch(gbUrl(a.googleBooksQuery, `&orderBy=newest&langRestrict=${LANG}&country=${COUNTRY}`));
+        const data = await res.json();
+        const seen = new Set();
+        const books = [];
+        for (const v of (data.items || [])) {
+            const info = v.volumeInfo || {};
+            const exact = (info.authors || []).some(au => au.trim().toLowerCase() === a.canonicalAuthor.trim().toLowerCase());
+            if (info.language !== LANG || !exact) {
+                continue;
+            }
+            const key = (info.title || "").trim().toLowerCase();
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            books.push({ title: info.title, date: info.publishedDate || "—" });
+        }
+        if (!books.length) {
+            document.getElementById("previewBody").innerHTML = `<span class="muted">Nessuna edizione italiana trovata.</span>`;
+            return;
+        }
+        document.getElementById("previewBody").innerHTML = books.map(b => `
+            <div class="preview-book">${escapeHtml(b.title)} <span class="preview-date">— ${escapeHtml(b.date)}</span></div>
+        `).join("");
+    } catch (e) {
+        document.getElementById("previewBody").innerHTML = `<div class="msg error">Errore: ${e.message}</div>`;
+    }
+}
+
+// MARK: - Avvio
+document.getElementById("saveSettings").addEventListener("click", saveSettings);
+document.getElementById("reload").addEventListener("click", loadAuthors);
+document.getElementById("searchBtn").addEventListener("click", searchVariants);
+document.getElementById("confirmAdd").addEventListener("click", confirmAdd);
+document.getElementById("searchInput").addEventListener("keydown", e => { if (e.key === "Enter") { searchVariants(); } });
+
+loadSettings();
+if (settings.token && settings.repo) {
+    loadAuthors();
+} else {
+    document.getElementById("settingsBox").open = true;
+}
+</script>
+</body>
+</html>
