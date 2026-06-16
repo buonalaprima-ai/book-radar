@@ -134,10 +134,6 @@
             <div style="margin-top: 12px;">
                 <label for="token">GitHub token — l'unica cosa da inserire (Contents: Read and write)</label>
                 <input type="password" id="token" placeholder="github_pat_..." autocomplete="off" />
-                <label for="repo">Repository (già impostato, cambialo solo se sai cosa fai)</label>
-                <input type="text" id="repo" placeholder="utente/book-radar" />
-                <label for="branch">Branch (già impostato)</label>
-                <input type="text" id="branch" placeholder="main" />
                 <label for="gkey">Google Books API key (opzionale)</label>
                 <input type="password" id="gkey" placeholder="lascia vuoto se non serve" autocomplete="off" />
                 <div style="margin-top: 12px;" class="row">
@@ -219,14 +215,12 @@ function loadSettings() {
     try { settings = Object.assign(settings, JSON.parse(localStorage.getItem("bookradar") || "{}")); }
     catch (e) { /* ignora */ }
     document.getElementById("token").value = settings.token || "";
-    document.getElementById("repo").value = settings.repo || "";
-    document.getElementById("branch").value = settings.branch || "main";
     document.getElementById("gkey").value = settings.gkey || "";
 }
 function saveSettings() {
     settings.token = document.getElementById("token").value.trim();
-    settings.repo = document.getElementById("repo").value.trim();
-    settings.branch = (document.getElementById("branch").value.trim() || "main");
+    settings.repo = DEFAULT_REPO;
+    settings.branch = DEFAULT_BRANCH;
     settings.gkey = document.getElementById("gkey").value.trim();
     localStorage.setItem("bookradar", JSON.stringify(settings));
     showMsg("globalMsg", "Impostazioni salvate.", "ok");
