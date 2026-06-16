@@ -236,8 +236,10 @@ function ghHeaders() {
     };
 }
 async function ghGetFile(path) {
-    const url = `https://api.github.com/repos/${settings.repo}/contents/${path}?ref=${settings.branch}`;
-    const res = await fetch(url, { headers: ghHeaders() });
+    // cache: "no-store" + parametro anti-cache: serve lo SHA SEMPRE aggiornato,
+    // altrimenti una risposta in cache darebbe uno SHA vecchio e la PUT fallirebbe con 409.
+    const url = `https://api.github.com/repos/${settings.repo}/contents/${path}?ref=${settings.branch}&t=${Date.now()}`;
+    const res = await fetch(url, { headers: ghHeaders(), cache: "no-store" });
     if (res.status === 404) {
         return null;
     }
@@ -248,22 +250,30 @@ async function ghGetFile(path) {
     return { content: base64ToUtf8(data.content), sha: data.sha };
 }
 async function ghPutFile(path, text, message) {
-    // Legge sempre lo SHA piu' recente subito prima di scrivere (riduce i conflitti).
-    const existing = await ghGetFile(path);
-    const body = {
-        message: message,
-        content: utf8ToBase64(text),
-        branch: settings.branch,
-    };
-    if (existing) {
-        body.sha = existing.sha;
-    }
-    const url = `https://api.github.com/repos/${settings.repo}/contents/${path}`;
-    const res = await fetch(url, { method: "PUT", headers: ghHeaders(), body: JSON.stringify(body) });
-    if (!res.ok) {
+    // Read-modify-write: legge lo SHA fresco e scrive. Se nel frattempo il file
+    // e' cambiato (409), ricarica lo SHA e riprova una volta.
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const existing = await ghGetFile(path);
+        const body = {
+            message: message,
+            content: utf8ToBase64(text),
+            branch: settings.branch,
+        };
+        if (existing) {
+            body.sha = existing.sha;
+        }
+        const url = `https://api.github.com/repos/${settings.repo}/contents/${path}`;
+        const res = await fetch(url, {
+            method: "PUT", headers: ghHeaders(), body: JSON.stringify(body), cache: "no-store",
+        });
+        if (res.ok) {
+            return res.json();
+        }
+        if (res.status === 409 && attempt === 0) {
+            continue;  // SHA cambiato sotto i piedi: ricarica e riprova
+        }
         throw new Error(`GitHub ${res.status}: ${(await res.json()).message || res.statusText}`);
     }
-    return res.json();
 }
 
 // MARK: - Caricamento e render lista autori
