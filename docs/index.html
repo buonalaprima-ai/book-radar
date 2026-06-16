@@ -335,11 +335,37 @@ async function removeAuthor(index) {
 }
 
 // MARK: - Google Books: ricerca varianti del nome
-function gbUrl(query, extra) {
-    let url = `${GB}?q=${encodeURIComponent(query)}&maxResults=40&printType=books`;
+function gbUrl(query, extra, startIndex) {
+    let url = `${GB}?q=${encodeURIComponent(query)}&orderBy=newest&maxResults=40&startIndex=${startIndex || 0}&printType=books`;
     if (extra) { url += extra; }
     if (settings.gkey) { url += `&key=${encodeURIComponent(settings.gkey)}`; }
     return url;
+}
+// Pagina fino a esaurire i risultati (come lo script): copertura completa.
+async function gbSearchAll(query, extra) {
+    const collected = [];
+    const seenIds = new Set();
+    let start = 0;
+    for (let page = 0; page < 8; page++) {
+        const res = await fetch(gbUrl(query, extra, start));
+        const data = await res.json();
+        if (data.error) {
+            throw new Error(data.error.message || "Google Books error");
+        }
+        const items = data.items || [];
+        if (!items.length) {
+            break;
+        }
+        let added = 0;
+        for (const v of items) {
+            if (v.id && !seenIds.has(v.id)) { seenIds.add(v.id); collected.push(v); added++; }
+        }
+        start += items.length;
+        if (added === 0) {
+            break;
+        }
+    }
+    return collected;
 }
 async function searchVariants() {
     const input = document.getElementById("searchInput").value.trim();
@@ -349,26 +375,33 @@ async function searchVariants() {
     if (!input) {
         return;
     }
-    showMsg("addMsg", spinner("Cerco su Google Books..."), "info");
+    showMsg("addMsg", spinner("Cerco su Google Books (può richiedere qualche secondo)..."), "info");
     try {
-        const res = await fetch(gbUrl(input, `&langRestrict=${LANG}&country=${COUNTRY}`));
-        const data = await res.json();
-        const items = data.items || [];
-        // Raccoglie le varianti distinte del campo authors, con frequenza e titoli di esempio.
+        const items = await gbSearchAll(input, `&langRestrict=${LANG}&country=${COUNTRY}`);
+        // Raggruppa le varianti del campo authors. Le grafie che differiscono solo
+        // per maiuscole/spazi vengono UNITE (lo script è case-insensitive).
         const variants = {};
         for (const v of items) {
             const info = v.volumeInfo || {};
             const isItalian = info.language === LANG;
             for (const author of (info.authors || [])) {
-                if (!variants[author]) {
-                    variants[author] = { name: author, count: 0, italianCount: 0, samples: [] };
+                const key = author.trim().toLowerCase().replace(/\s+/g, " ");
+                if (!variants[key]) {
+                    variants[key] = { count: 0, italianCount: 0, samples: [], spellings: {} };
                 }
-                variants[author].count++;
-                if (isItalian) { variants[author].italianCount++; }
-                if (variants[author].samples.length < 3 && info.title) {
-                    variants[author].samples.push(info.title);
+                const rec = variants[key];
+                rec.count++;
+                rec.spellings[author] = (rec.spellings[author] || 0) + 1;
+                if (isItalian) {
+                    rec.italianCount++;
+                    if (rec.samples.length < 3 && info.title) { rec.samples.push(info.title); }
                 }
             }
+        }
+        // Per ogni variante usa la grafia più frequente come etichetta.
+        for (const k in variants) {
+            const sp = variants[k].spellings;
+            variants[k].name = Object.keys(sp).sort((a, b) => sp[b] - sp[a])[0];
         }
         const list = Object.values(variants).sort((a, b) => b.italianCount - a.italianCount || b.count - a.count);
         if (!list.length) {
@@ -436,7 +469,7 @@ async function previewAuthor(index) {
     document.getElementById("previewBody").innerHTML = spinner("Carico i libri italiani...");
     card.scrollIntoView({ behavior: "smooth" });
     try {
-        const res = await fetch(gbUrl(a.googleBooksQuery, `&orderBy=newest&langRestrict=${LANG}&country=${COUNTRY}`));
+        const res = await fetch(gbUrl(a.googleBooksQuery, `&langRestrict=${LANG}&country=${COUNTRY}`));
         const data = await res.json();
         const seen = new Set();
         const books = [];
