@@ -12,7 +12,7 @@
 
 set -uo pipefail
 
-REPO="/Users/matteopuccinelli/Desktop/xWorkspace/book-radar"
+REPO="/Users/matteopuccinelli/book-radar"
 cd "$REPO" || exit 1
 
 # launchd parte con un PATH minimale: aggiungo le posizioni tipiche di git/python.
