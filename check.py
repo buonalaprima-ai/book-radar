@@ -44,8 +44,12 @@ from pathlib import Path
 GOOGLE_BOOKS_ENDPOINT = "https://www.googleapis.com/books/v1/volumes"
 TELEGRAM_API_BASE = "https://api.telegram.org"
 
-# Numero massimo di volumi richiesti per autore (limite hard di Google e' 40).
+# Dimensione pagina richiesta a Google (limite hard dell'API e' 40).
 MAX_RESULTS = 40
+
+# Tetto di pagine da scaricare per autore (sicurezza anti-loop). 8 x 40 = fino a
+# ~320 risultati; in pratica ci si ferma prima quando i risultati si esauriscono.
+MAX_PAGES = 8
 
 # Piccola pausa tra le chiamate per non martellare l'API condivisa.
 REQUEST_DELAY_SECONDS = 0.5
@@ -153,21 +157,13 @@ def write_status(authors_count, works_tracked, notifications_sent, had_errors):
 
 # MARK: - Google Books
 
-def google_books_search(query, api_key=None, max_results=MAX_RESULTS,
-                        lang_restrict=None, country=None):
-    """
-    Interroga l'endpoint volumes ordinando per data (orderBy=newest).
-
-    `lang_restrict` e `country` orientano i risultati verso una lingua/mercato
-    (sono solo suggerimenti lato Google: il filtro rigido per lingua lo fa il
-    chiamante). Ritorna la lista di volumi (puo' essere vuota). Solleva
-    RuntimeError sugli errori HTTP cosi che il chiamante possa proseguire con
-    gli altri autori senza far esplodere l'intera run.
-    """
+def _fetch_page(query, start_index, api_key, lang_restrict, country):
+    """Scarica una singola pagina di risultati. Solleva RuntimeError su errore HTTP."""
     params = {
         "q": query,
         "orderBy": "newest",
-        "maxResults": max_results,
+        "maxResults": MAX_RESULTS,
+        "startIndex": start_index,
         "printType": "books",
     }
     if lang_restrict:
@@ -195,6 +191,40 @@ def google_books_search(query, api_key=None, max_results=MAX_RESULTS,
         raise RuntimeError(f"errore di rete verso Google Books: {error.reason}") from error
 
     return payload.get("items", []) or []
+
+
+def google_books_search(query, api_key=None, lang_restrict=None, country=None):
+    """
+    Scarica TUTTI i volumi raggiungibili per la query, paginando con startIndex.
+
+    Perche' paginare: `orderBy=newest` di Google NON ordina in modo affidabile per
+    data e una singola pagina (~20 risultati) non copre il catalogo di un autore
+    prolifico. Una nuova uscita potrebbe non comparire nella prima pagina e non
+    verrebbe mai notificata. Paginando fino a esaurimento prendiamo l'intero
+    catalogo raggiungibile, quindi l'ordine inaffidabile non conta piu'.
+
+    `lang_restrict` e `country` orientano i risultati (sono solo suggerimenti: il
+    filtro rigido per lingua lo fa il chiamante). Solleva RuntimeError su errore.
+    """
+    collected = []
+    seen_ids = set()
+    start = 0
+    for _ in range(MAX_PAGES):
+        items = _fetch_page(query, start, api_key, lang_restrict, country)
+        if not items:
+            break  # pagina vuota: risultati esauriti
+        added = 0
+        for volume in items:
+            vid = volume.get("id")
+            if vid and vid not in seen_ids:
+                seen_ids.add(vid)
+                collected.append(volume)
+                added += 1
+        start += len(items)
+        if added == 0:
+            break  # solo doppioni: Google ha smesso di restituire roba nuova
+        time.sleep(REQUEST_DELAY_SECONDS)
+    return collected
 
 
 def author_matches(volume, canonical_author):
