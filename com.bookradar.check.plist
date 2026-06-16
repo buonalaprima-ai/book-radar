@@ -29,6 +29,11 @@
         <integer>0</integer>
     </dict>
 
+    <!-- Esegue il check anche a ogni caricamento dell'agent (login/avvio del Mac),
+         oltre che alle 09:00. Grazie alla logica "gia' visti" non manda doppioni. -->
+    <key>RunAtLoad</key>
+    <true/>
+
     <key>StandardOutPath</key>
     <string>/Users/matteopuccinelli/book-radar/launchd.out.log</string>
     <key>StandardErrorPath</key>
