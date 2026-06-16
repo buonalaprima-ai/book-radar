@@ -1,6 +1,11 @@
 # Segreti locali: NON devono mai finire nel repo
 .env
 
+# Log del job schedulato (solo locali)
+book-radar.log
+launchd.out.log
+launchd.err.log
+
 # Python
 __pycache__/
 *.pyc

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Job launchd di Book Radar.
+
+  Installazione (vedi README, sezione "Schedulazione sul Mac"):
+    cp com.bookradar.check.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.bookradar.check.plist
+
+  Gira ogni giorno alle 09:00. Se il Mac e' spento/sospeso a quell'ora,
+  launchd esegue il job al primo risveglio successivo.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bookradar.check</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/matteopuccinelli/Desktop/xWorkspace/book-radar/run.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/matteopuccinelli/Desktop/xWorkspace/book-radar/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/matteopuccinelli/Desktop/xWorkspace/book-radar/launchd.err.log</string>
+</dict>
+</plist>

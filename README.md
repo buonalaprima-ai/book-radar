@@ -2,9 +2,16 @@
 
 Notifiche Telegram quando esce un nuovo libro di un autore che segui.
 
-Niente backend sempre attivo: lo **stato vive interamente nel repo GitHub**. Una
-GitHub Action quotidiana fa polling su Google Books, e un'app iOS (cartella
-`ios/`, vedi PARTE 2) fa da backoffice per gestire la lista autori.
+Niente backend sempre attivo: lo **stato vive interamente nel repo GitHub**. Un
+job schedulato (`launchd`) sul Mac fa polling su Google Books una volta al
+giorno, e un'app iOS (cartella `ios/`, vedi PARTE 2) fa da backoffice per
+gestire la lista autori.
+
+> **Perché sul Mac e non su una GitHub Action?** Google Books restituisce le
+> edizioni in base alla geolocalizzazione dell'IP della richiesta. I runner
+> GitHub hanno IP USA e **non vedono le edizioni italiane**. Girando dal Mac
+> (IP italiano) il filtro "solo italiano" funziona davvero. Lo stato resta
+> comunque nel repo: il job fa `git pull` prima e `git push` dopo.
 
 ---
 
@@ -41,7 +48,8 @@ server** che fa la richiesta. Per avere notifiche pulite e deterministiche:
 > perché il titolo è diverso. Con `BOOK_RADAR_LANG=it` riceverai comunque solo
 > l'edizione italiana.
 - **`check.py`** — lo script di polling (solo standard library Python, zero dipendenze).
-- **`.github/workflows/check.yml`** — la GitHub Action schedulata.
+- **`run.sh`** — wrapper eseguito dal job: `git pull` → `check.py` → `git push`.
+- **`com.bookradar.check.plist`** — il job `launchd` (schedulazione quotidiana).
 
 ### Il filtro di precisione
 
@@ -114,39 +122,45 @@ git init
 git add .
 git commit -m "Book Radar: setup iniziale"
 # Crea una repo PRIVATA su github.com, poi:
-git remote add origin git@github.com:<tuo-utente>/book-radar.git
+git remote add origin https://github.com/<tuo-utente>/book-radar.git
 git branch -M main
 git push -u origin main
 ```
 
 > Verifica che `.env` **non** sia tra i file committati (`git status` non deve
-> mostrarlo). È protetto da `.gitignore`.
+> mostrarlo). È protetto da `.gitignore`. Il push di `seen_books.json` userà le
+> stesse credenziali (token GitHub, vedi sotto), già memorizzate nel keychain.
 
-### 5. Configura i GitHub Secrets
+### 5. Schedulazione sul Mac (job giornaliero)
 
-Nella repo su GitHub: **Settings → Secrets and variables → Actions → New repository secret**.
-Aggiungi:
+Il polling gira sul Mac tramite `launchd`, così Google Books vede le edizioni
+italiane (vedi nota in cima al README). Sono due comandi:
 
-| Nome | Valore |
-|------|--------|
-| `TELEGRAM_BOT_TOKEN` | il token di BotFather |
-| `TELEGRAM_CHAT_ID` | il tuo chat id |
-| `GOOGLE_BOOKS_API_KEY` | *(opzionale)* solo se usi una API key |
+```bash
+# Installa il job (copia il plist tra i LaunchAgents dell'utente)
+cp com.bookradar.check.plist ~/Library/LaunchAgents/
 
-### 6. Prima run manuale (senza aspettare il cron)
+# Caricalo (da ora gira ogni giorno alle 09:00)
+launchctl load ~/Library/LaunchAgents/com.bookradar.check.plist
+```
 
-1. Vai nella tab **Actions** della repo.
-2. Seleziona il workflow **Book Radar** → **Run workflow**.
-3. Controlla i log dello step "Esegui il controllo nuove uscite": per ogni autore
-   vedrai quanti volumi trovati, quanti dopo il filtro, quante novità.
-4. Alla **prima** run gli autori vengono inizializzati (nessuna notifica) e lo step
-   di commit aggiorna `seen_books.json` / `initialized_authors.json`.
+Per **lanciarlo subito a mano** (test, senza aspettare le 09:00):
 
-### 7. Attiva lo schedule quotidiano
+```bash
+launchctl start com.bookradar.check
+# poi guarda il log:
+tail -n 30 book-radar.log
+```
 
-Solo **dopo** una run manuale andata a buon fine: apri
-`.github/workflows/check.yml`, togli il `#` davanti al blocco `schedule:` /
-`- cron:` e committa. Da quel momento gira ogni giorno alle 08:00 UTC.
+Per **disattivarlo**:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.bookradar.check.plist
+```
+
+> Se il Mac è spento o sospeso alle 09:00, `launchd` esegue il job al primo
+> risveglio successivo. Per cambiare orario, modifica `Hour`/`Minute` nel plist,
+> poi `unload` + `load` di nuovo.
 
 ---
 
@@ -175,8 +189,11 @@ nel repo.
 | `python3 check.py --test-notification` | Manda un Telegram di prova ed esce |
 | `python3 test_filter.py` | Test del filtro di precisione |
 | `python3 test_flow.py` | Test d'integrazione offline del flusso |
+| `launchctl start com.bookradar.check` | Lancia subito il job schedulato |
+| `tail -f book-radar.log` | Segui il log del job in tempo reale |
 
-Variabile d'ambiente alternativa al flag: `BOOK_RADAR_DRY_RUN=1 python3 check.py`.
+Variabili d'ambiente: `BOOK_RADAR_DRY_RUN=1` (dry-run), `BOOK_RADAR_LANG=it`
+(lingua delle edizioni, default `it`).
 
 ---
 
