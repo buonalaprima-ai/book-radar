@@ -1,0 +1,48 @@
+name: Book Radar
+
+# Trigger:
+#  - workflow_dispatch: lancio manuale dalla tab "Actions" di GitHub.
+#  - schedule: esecuzione quotidiana. TENUTO COMMENTATO di proposito: attivalo
+#    (togli il '#') solo DOPO aver verificato almeno una run manuale andata bene.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 8 * * *"   # ogni giorno alle 08:00 UTC
+
+# Serve il permesso di scrittura per committare seen_books.json / initialized_authors.json.
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Nessuna dipendenza esterna: lo script usa solo la standard library.
+
+      - name: Esegui il controllo nuove uscite
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Opzionale: aggiungi questo secret solo se usi una API key Google Books.
+          GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
+        run: python check.py
+
+      - name: Committa lo stato aggiornato (se cambiato)
+        run: |
+          if [ -n "$(git status --porcelain seen_books.json initialized_authors.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add seen_books.json initialized_authors.json
+            git commit -m "chore: aggiorna stato libri visti [skip ci]"
+            git push
+          else
+            echo "Nessuna modifica allo stato: niente da committare."
+          fi

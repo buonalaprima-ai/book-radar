@@ -1,0 +1,2 @@
+# Lo script di polling usa solo la standard library di Python: nessuna dipendenza
+# runtime da installare. Il file e' qui per chiarezza/futura estensione.
