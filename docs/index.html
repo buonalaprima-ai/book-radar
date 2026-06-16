@@ -132,11 +132,11 @@
         <details id="settingsBox">
             <summary>Impostazioni (token GitHub, repo)</summary>
             <div style="margin-top: 12px;">
-                <label for="token">GitHub token (Contents: Read and write)</label>
+                <label for="token">GitHub token — l'unica cosa da inserire (Contents: Read and write)</label>
                 <input type="password" id="token" placeholder="github_pat_..." autocomplete="off" />
-                <label for="repo">Repository (owner/repo)</label>
+                <label for="repo">Repository (già impostato, cambialo solo se sai cosa fai)</label>
                 <input type="text" id="repo" placeholder="utente/book-radar" />
-                <label for="branch">Branch</label>
+                <label for="branch">Branch (già impostato)</label>
                 <input type="text" id="branch" placeholder="main" />
                 <label for="gkey">Google Books API key (opzionale)</label>
                 <input type="password" id="gkey" placeholder="lascia vuoto se non serve" autocomplete="off" />
@@ -153,7 +153,7 @@
     <!-- LISTA AUTORI -->
     <div class="card">
         <h2>Autori seguiti</h2>
-        <div id="authorsList"><span class="muted">Configura il token e premi "Ricarica".</span></div>
+        <div id="authorsList"><span class="muted">Inserisci il token nelle impostazioni per vedere la lista.</span></div>
         <div style="margin-top: 12px;">
             <button class="secondary small" id="reload">↻ Ricarica</button>
         </div>
@@ -195,7 +195,11 @@ const COUNTRY = "IT";
 const AUTHORS_PATH = "authors.json";
 const GB = "https://www.googleapis.com/books/v1/volumes";
 
-let settings = { token: "", repo: "", branch: "main", gkey: "" };
+// Repo fisso e non segreto: preimpostato nel codice, non serve digitarlo.
+const DEFAULT_REPO = "buonalaprima-ai/book-radar";
+const DEFAULT_BRANCH = "main";
+
+let settings = { token: "", repo: DEFAULT_REPO, branch: DEFAULT_BRANCH, gkey: "" };
 let authors = [];            // contenuto corrente di authors.json
 let selectedVariant = null;  // variante autore scelta in fase di aggiunta
 
