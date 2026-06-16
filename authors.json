@@ -8,5 +8,10 @@
     "name": "Stephen King",
     "canonicalAuthor": "Stephen King",
     "googleBooksQuery": "inauthor:\"Stephen King\""
+  },
+  {
+    "name": "Dario Ferrari",
+    "canonicalAuthor": "Dario Ferrari",
+    "googleBooksQuery": "inauthor:\"Dario Ferrari\""
   }
 ]
