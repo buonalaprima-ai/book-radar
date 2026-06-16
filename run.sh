@@ -33,10 +33,12 @@ if [ $status -ne 0 ]; then
     echo "[run.sh] check.py terminato con errore (exit $status)."
 fi
 
-# 3. Ripubblica lo stato se cambiato.
-if [ -n "$(git status --porcelain seen_books.json initialized_authors.json)" ]; then
-    git add seen_books.json initialized_authors.json
-    git commit -q -m "chore: aggiorna stato libri visti [skip ci]"
+# 3. Ripubblica lo stato. last_run.json/STATUS.md cambiano a ogni run (timestamp),
+#    quindi normalmente c'e' sempre almeno un commit: e' il "battito" giornaliero
+#    che conferma dal repo che lo script ha girato.
+git add seen_books.json initialized_authors.json last_run.json STATUS.md
+if [ -n "$(git status --porcelain seen_books.json initialized_authors.json last_run.json STATUS.md)" ]; then
+    git commit -q -m "chore: aggiorna stato e timestamp ultimo controllo [skip ci]"
     git push -q && echo "[run.sh] Stato ripubblicato sul repo." || echo "[run.sh] git push fallito."
 else
     echo "[run.sh] Nessuna modifica di stato da pubblicare."

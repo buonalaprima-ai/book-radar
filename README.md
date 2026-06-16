@@ -162,6 +162,20 @@ launchctl unload ~/Library/LaunchAgents/com.bookradar.check.plist
 > risveglio successivo. Per cambiare orario, modifica `Hour`/`Minute` nel plist,
 > poi `unload` + `load` di nuovo.
 
+### Verificare che lo script giri davvero ogni giorno
+
+A ogni esecuzione lo script aggiorna e ripubblica nel repo:
+
+- **`STATUS.md`** — leggibile direttamente su GitHub (apri il file nel repo):
+  mostra **data e ora dell'ultimo controllo**, esito, numero di opere monitorate
+  e notifiche inviate. Se quella data non avanza di giorno in giorno, il job non
+  sta girando.
+- **`last_run.json`** — la stessa informazione in formato machine-readable (utile
+  anche all'app iOS per mostrarti "ultimo controllo" in una schermata).
+
+Inoltre la **cronologia commit** del repo (`chore: aggiorna stato e timestamp...`)
+è di per sé una prova: dovresti vederne uno nuovo ogni giorno.
+
 ---
 
 ## Personal Access Token GitHub (per l'app iOS)

@@ -36,6 +36,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 # MARK: - Costanti
@@ -60,6 +61,11 @@ ROOT = Path(__file__).resolve().parent
 AUTHORS_FILE = ROOT / "authors.json"
 SEEN_FILE = ROOT / "seen_books.json"
 INITIALIZED_FILE = ROOT / "initialized_authors.json"
+
+# "Battito cardiaco": aggiornati a ogni run e committati, per verificare dal repo
+# che lo script gira davvero ogni giorno.
+STATUS_JSON_FILE = ROOT / "last_run.json"
+STATUS_MD_FILE = ROOT / "STATUS.md"
 
 
 # MARK: - Logging
@@ -110,6 +116,39 @@ def save_json(path, data):
         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+# MARK: - Stato / battito cardiaco
+
+def write_status(authors_count, works_tracked, notifications_sent, had_errors):
+    """
+    Scrive last_run.json (machine) e STATUS.md (leggibile su GitHub) con il
+    timestamp dell'ultima esecuzione e un riepilogo. Viene aggiornato a OGNI
+    run (anche senza novita'), cosi' dal repo si vede che lo script gira.
+    """
+    now = datetime.now().astimezone()
+    status = {
+        "last_run": now.strftime("%Y-%m-%d %H:%M:%S %z"),
+        "last_run_iso": now.isoformat(timespec="seconds"),
+        "outcome": "errori durante il run" if had_errors else "ok",
+        "authors_checked": authors_count,
+        "works_tracked": works_tracked,
+        "notifications_sent": notifications_sent,
+    }
+    save_json(STATUS_JSON_FILE, status)
+
+    outcome_icon = "⚠️" if had_errors else "✅"
+    markdown = (
+        "# 📚 Book Radar — stato\n\n"
+        f"**Ultimo controllo:** {status['last_run']}\n\n"
+        f"- Esito: {outcome_icon} {status['outcome']}\n"
+        f"- Autori controllati: {authors_count}\n"
+        f"- Opere monitorate: {works_tracked}\n"
+        f"- Notifiche inviate in questo run: {notifications_sent}\n\n"
+        "> File aggiornato automaticamente a ogni esecuzione dello script.\n"
+        "> Se questa data non avanza di giorno in giorno, il job sul Mac non sta girando.\n"
+    )
+    STATUS_MD_FILE.write_text(markdown, encoding="utf-8")
 
 
 # MARK: - Google Books
@@ -281,7 +320,8 @@ def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_r
     Pipeline: ricerca -> filtro autore esatto -> filtro lingua -> dedup per
     opera (titolo normalizzato) -> novita' = opere mai viste.
 
-    Ritorna il numero di notifiche inviate per questo autore.
+    Ritorna una tupla (notifiche_inviate, errore) dove `errore` e' True se la
+    ricerca per questo autore e' fallita (es. quota Google esaurita).
     """
     name = author.get("name", "(senza nome)")
     canonical = author.get("canonicalAuthor", "")
@@ -289,7 +329,7 @@ def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_r
 
     if not canonical or not query:
         log(f"  [SALTATO] '{name}': manca canonicalAuthor o googleBooksQuery.")
-        return 0
+        return 0, True
 
     language = os.environ.get("BOOK_RADAR_LANG", DEFAULT_LANGUAGE)
     country = os.environ.get("BOOK_RADAR_COUNTRY", DEFAULT_COUNTRY)
@@ -301,7 +341,7 @@ def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_r
                                       lang_restrict=language, country=country)
     except RuntimeError as error:
         log(f"    [ERRORE] {error}")
-        return 0
+        return 0, True
 
     # Filtro: autore esatto E lingua esatta (langRestrict di Google e' solo un
     # suggerimento, quindi la lingua va ri-verificata qui in modo rigido).
@@ -326,7 +366,7 @@ def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_r
         seen_keys.update(works.keys())
         initialized_authors.add(canonical)
         log(f"    [INIT] Inizializzato con {len(works)} opere esistenti. Nessuna notifica inviata.")
-        return 0
+        return 0, False
 
     # Autore gia' inizializzato: novita' = opere mai viste prima.
     new_works = [(key, book) for key, book in works.items() if key not in seen_keys]
@@ -338,7 +378,7 @@ def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_r
         if send_telegram(token, chat_id, format_message(book), dry_run=dry_run):
             seen_keys.add(key)
             sent += 1
-    return sent
+    return sent, False
 
 
 # MARK: - Notifica di test
@@ -405,8 +445,11 @@ def main():
     log("")
 
     total_sent = 0
+    had_errors = False
     for index, author in enumerate(authors):
-        total_sent += process_author(author, seen_keys, initialized_authors, token, chat_id, dry_run)
+        sent, error = process_author(author, seen_keys, initialized_authors, token, chat_id, dry_run)
+        total_sent += sent
+        had_errors = had_errors or error
         if index < len(authors) - 1:
             time.sleep(REQUEST_DELAY_SECONDS)
 
@@ -417,10 +460,11 @@ def main():
         log("[DRY-RUN] Stato NON salvato su disco.")
         return
 
-    # Persistenza dello stato (la Action committera' i file modificati).
+    # Persistenza dello stato (run.sh committera' i file modificati).
     save_json(SEEN_FILE, sorted(seen_keys))
     save_json(INITIALIZED_FILE, sorted(initialized_authors))
-    log("Stato salvato (seen_books.json, initialized_authors.json).")
+    write_status(len(authors), len(seen_keys), total_sent, had_errors)
+    log("Stato salvato (seen_books.json, initialized_authors.json, last_run.json, STATUS.md).")
 
 
 if __name__ == "__main__":

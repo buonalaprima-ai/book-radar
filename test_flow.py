@@ -53,7 +53,7 @@ def test_flusso_completo():
         _volume("en-1", "Straight White Male", ["John Niven"], lang="en"),   # lingua sbagliata
         _volume("hist-1", "Martin Van Buren", ["John Niven"], lang="it"),    # omonimo storico (titolo a se')
     ]
-    sent = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
+    sent, _ = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
 
     assert sent == 0, "al primo avvio non si deve notificare nulla"
     assert "John Niven" in initialized, "l'autore deve risultare inizializzato"
@@ -68,7 +68,7 @@ def test_flusso_completo():
         _volume("it-1", "Maschio Bianco Etero", ["John Niven"], lang="it"),
         _volume("en-2", "The Fathers", ["John Niven"], lang="en"),
     ]
-    sent = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
+    sent, _ = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
 
     assert sent == 1, "deve notificare esattamente il nuovo titolo italiano"
     assert _key("Padri Nostri") in seen
@@ -78,7 +78,7 @@ def test_flusso_completo():
         _volume("it-3a", "Padri Nostri", ["John Niven"], lang="it"),
         _volume("it-3b", "Padri Nostri", ["John Niven"], lang="it"),  # ristampa, ID diverso
     ]
-    sent = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
+    sent, _ = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
     assert sent == 0, "edizioni diverse dello stesso titolo non devono ri-notificare"
 
 
