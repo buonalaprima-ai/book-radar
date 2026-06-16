@@ -17,9 +17,29 @@ authors.json ──> check.py ──> Google Books API ──> filtro autore ─
 ```
 
 - **`authors.json`** — la tua lista di autori seguiti.
-- **`seen_books.json`** — ID dei volumi gia notificati (evita doppioni).
+- **`seen_books.json`** — chiavi delle **opere** gia notificate (`autore::titolo`).
+  Si ragiona per opera, non per singola edizione: così ristampe/edizioni diverse
+  dello stesso titolo non generano notifiche doppie.
 - **`initialized_authors.json`** — autori gia "inizializzati", così aggiungere un
   nuovo autore non ti sommerge di notifiche del suo catalogo storico.
+
+### Lingua e dedup (importante)
+
+Google Books elenca la stessa opera in più edizioni e lingue, ognuna con un ID
+di volume diverso, **e il set di edizioni restituito dipende dalla regione del
+server** che fa la richiesta. Per avere notifiche pulite e deterministiche:
+
+1. **Filtro lingua**: vengono considerate solo le edizioni con
+   `volumeInfo.language` uguale alla lingua scelta (default **italiano**,
+   configurabile con la variabile d'ambiente `BOOK_RADAR_LANG`). La lingua è una
+   proprietà del volume, quindi il risultato non dipende da dove gira il polling.
+2. **Dedup per opera**: i volumi vengono raggruppati per titolo normalizzato →
+   **una sola notifica per titolo**.
+
+> Nota: due opere diverse con titolo tradotto diverso (es. l'originale inglese
+> *The Fathers* e l'edizione italiana *Padri nostri*) restano notifiche separate,
+> perché il titolo è diverso. Con `BOOK_RADAR_LANG=it` riceverai comunque solo
+> l'edizione italiana.
 - **`check.py`** — lo script di polling (solo standard library Python, zero dipendenze).
 - **`.github/workflows/check.yml`** — la GitHub Action schedulata.
 

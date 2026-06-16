@@ -9,7 +9,14 @@ Non fa chiamate di rete: lavora su volumi finti che imitano la forma della
 risposta Google Books.
 """
 
-from check import author_matches, extract_book, format_message
+from check import (
+    author_matches,
+    extract_book,
+    format_message,
+    normalize_title,
+    volume_language,
+    work_key,
+)
 
 
 def _volume(authors, title="Un Libro"):
@@ -91,6 +98,29 @@ def test_format_message_escape_html():
     assert "&amp;" in message
     assert "&lt;test&gt;" in message
     assert "<b>" in message  # il grassetto del titolo resta intatto
+
+
+# MARK: - Lingua e chiave opera
+
+def test_volume_language():
+    assert volume_language(_volume(["John Niven"])) is None  # nessun campo language
+    vol = {"id": "x", "volumeInfo": {"title": "Y", "language": "it"}}
+    assert volume_language(vol) == "it"
+
+
+def test_normalize_title():
+    assert normalize_title("  Padri   Nostri ") == "padri nostri"
+    assert normalize_title("MASCHIO Bianco Etero") == "maschio bianco etero"
+
+
+def test_work_key_dedup_edizioni():
+    # Edizioni diverse, stesso titolo+autore -> stessa chiave (una sola notifica).
+    assert work_key("John Niven", "Padri Nostri") == work_key("john niven", "  padri   nostri ")
+
+
+def test_work_key_namespace_autore():
+    # Stesso titolo, autori diversi -> chiavi diverse.
+    assert work_key("John Niven", "Ritorno") != work_key("Altro Autore", "Ritorno")
 
 
 # MARK: - Runner standalone (senza pytest)

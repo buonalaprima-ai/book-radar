@@ -5,8 +5,14 @@ Book Radar — polling script.
 Per ogni autore in authors.json interroga Google Books, filtra con precisione
 sull'autore canonico, e notifica via Telegram i nuovi libri non ancora visti.
 
+Notifica una sola volta per OPERA (dedup sul titolo normalizzato) e solo le
+edizioni nella lingua scelta (default: italiano). La lingua e' una proprieta'
+del volume, quindi i risultati sono indipendenti dalla regione del server che
+fa il polling (locale o runner GitHub).
+
 Lo "stato" vive interamente nel repo:
-  - seen_books.json          → ID volume gia notificati (evita doppioni)
+  - seen_books.json          → chiavi opera gia notificate ("autore::titolo"),
+                               evita doppioni anche tra edizioni diverse
   - initialized_authors.json → autori gia "inizializzati" (evita di notificare
                                l'intero catalogo storico al primo avvio)
 
@@ -42,6 +48,13 @@ MAX_RESULTS = 40
 
 # Piccola pausa tra le chiamate per non martellare l'API condivisa.
 REQUEST_DELAY_SECONDS = 0.5
+
+# Lingua delle edizioni da notificare (ISO 639-1). Override: env BOOK_RADAR_LANG.
+# Solo i volumi con volumeInfo.language esattamente uguale vengono considerati.
+DEFAULT_LANGUAGE = "it"
+
+# Mercato Google Books, per orientare i risultati. Override: env BOOK_RADAR_COUNTRY.
+DEFAULT_COUNTRY = "IT"
 
 ROOT = Path(__file__).resolve().parent
 AUTHORS_FILE = ROOT / "authors.json"
@@ -101,13 +114,16 @@ def save_json(path, data):
 
 # MARK: - Google Books
 
-def google_books_search(query, api_key=None, max_results=MAX_RESULTS):
+def google_books_search(query, api_key=None, max_results=MAX_RESULTS,
+                        lang_restrict=None, country=None):
     """
     Interroga l'endpoint volumes ordinando per data (orderBy=newest).
 
-    Ritorna la lista di volumi (puo' essere vuota). Solleva RuntimeError sugli
-    errori HTTP cosi che il chiamante possa decidere se proseguire con gli altri
-    autori senza far esplodere l'intera run.
+    `lang_restrict` e `country` orientano i risultati verso una lingua/mercato
+    (sono solo suggerimenti lato Google: il filtro rigido per lingua lo fa il
+    chiamante). Ritorna la lista di volumi (puo' essere vuota). Solleva
+    RuntimeError sugli errori HTTP cosi che il chiamante possa proseguire con
+    gli altri autori senza far esplodere l'intera run.
     """
     params = {
         "q": query,
@@ -115,6 +131,10 @@ def google_books_search(query, api_key=None, max_results=MAX_RESULTS):
         "maxResults": max_results,
         "printType": "books",
     }
+    if lang_restrict:
+        params["langRestrict"] = lang_restrict
+    if country:
+        params["country"] = country
     if api_key:
         params["key"] = api_key
 
@@ -152,6 +172,27 @@ def author_matches(volume, canonical_author):
         if " ".join(author.lower().split()) == target:
             return True
     return False
+
+
+def volume_language(volume):
+    """Ritorna il codice lingua del volume (es. 'it', 'en') o None se assente."""
+    return volume.get("volumeInfo", {}).get("language")
+
+
+def normalize_title(title):
+    """Normalizza un titolo per il confronto: minuscolo, spazi compattati."""
+    return " ".join((title or "").lower().split())
+
+
+def work_key(canonical_author, title):
+    """
+    Chiave identificativa di un'OPERA: "autore::titolo normalizzato".
+
+    Edizioni diverse con lo stesso titolo (es. ristampe) condividono la chiave,
+    quindi generano una sola notifica. Lo spazio dei nomi per autore evita
+    collisioni tra autori con un titolo identico.
+    """
+    return f"{' '.join(canonical_author.lower().split())}::{normalize_title(title)}"
 
 
 def extract_book(volume):
@@ -229,13 +270,16 @@ def send_telegram(token, chat_id, text, dry_run=False):
 
 # MARK: - Elaborazione di un autore
 
-def process_author(author, seen_ids, initialized_authors, token, chat_id, dry_run):
+def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_run):
     """
     Elabora un singolo autore.
 
-    Muta `seen_ids` (set) e `initialized_authors` (set) in memoria; la
-    persistenza su file e' responsabilita' del chiamante (e viene saltata
-    in dry-run).
+    Muta `seen_keys` (set di chiavi opera) e `initialized_authors` (set) in
+    memoria; la persistenza su file e' responsabilita' del chiamante (e viene
+    saltata in dry-run).
+
+    Pipeline: ricerca -> filtro autore esatto -> filtro lingua -> dedup per
+    opera (titolo normalizzato) -> novita' = opere mai viste.
 
     Ritorna il numero di notifiche inviate per questo autore.
     """
@@ -247,37 +291,52 @@ def process_author(author, seen_ids, initialized_authors, token, chat_id, dry_ru
         log(f"  [SALTATO] '{name}': manca canonicalAuthor o googleBooksQuery.")
         return 0
 
-    log(f"  Autore: {name}  (canonical: \"{canonical}\")")
+    language = os.environ.get("BOOK_RADAR_LANG", DEFAULT_LANGUAGE)
+    country = os.environ.get("BOOK_RADAR_COUNTRY", DEFAULT_COUNTRY)
+    log(f"  Autore: {name}  (canonical: \"{canonical}\", lingua: {language})")
 
     api_key = os.environ.get("GOOGLE_BOOKS_API_KEY")
     try:
-        volumes = google_books_search(query, api_key=api_key)
+        volumes = google_books_search(query, api_key=api_key,
+                                      lang_restrict=language, country=country)
     except RuntimeError as error:
         log(f"    [ERRORE] {error}")
         return 0
 
-    matched = [extract_book(v) for v in volumes if author_matches(v, canonical)]
-    log(f"    Volumi trovati: {len(volumes)} | dopo filtro autore: {len(matched)}")
+    # Filtro: autore esatto E lingua esatta (langRestrict di Google e' solo un
+    # suggerimento, quindi la lingua va ri-verificata qui in modo rigido).
+    matched = [v for v in volumes
+               if author_matches(v, canonical) and volume_language(v) == language]
+
+    # Dedup per opera: tengo il primo volume per ogni chiave (orderBy=newest,
+    # quindi il piu' recente) come rappresentante per il messaggio.
+    works = {}
+    for volume in matched:
+        book = extract_book(volume)
+        key = work_key(canonical, book["title"])
+        works.setdefault(key, book)
+
+    log(f"    Volumi: {len(volumes)} trovati | {len(matched)} dopo filtro "
+        f"autore+lingua | {len(works)} opere distinte")
 
     is_first_run = canonical not in initialized_authors
 
     if is_first_run:
         # Primo avvio per questo autore: assorbi il catalogo storico SENZA notificare.
-        for book in matched:
-            seen_ids.add(book["id"])
+        seen_keys.update(works.keys())
         initialized_authors.add(canonical)
-        log(f"    [INIT] Inizializzato con {len(matched)} libri esistenti. Nessuna notifica inviata.")
+        log(f"    [INIT] Inizializzato con {len(works)} opere esistenti. Nessuna notifica inviata.")
         return 0
 
-    # Autore gia' inizializzato: novita' = volumi mai visti prima.
-    new_books = [book for book in matched if book["id"] and book["id"] not in seen_ids]
-    log(f"    Novita': {len(new_books)}")
+    # Autore gia' inizializzato: novita' = opere mai viste prima.
+    new_works = [(key, book) for key, book in works.items() if key not in seen_keys]
+    log(f"    Novita': {len(new_works)}")
 
     sent = 0
-    for book in new_books:
+    for key, book in new_works:
         log(f"    -> NOVITA': \"{book['title']}\" ({book['published_date']})")
         if send_telegram(token, chat_id, format_message(book), dry_run=dry_run):
-            seen_ids.add(book["id"])
+            seen_keys.add(key)
             sent += 1
     return sent
 
@@ -338,16 +397,16 @@ def main():
         log(f"[AVVISO] {AUTHORS_FILE.name} e' vuoto o assente. Niente da fare.")
         return
 
-    seen_ids = set(load_json(SEEN_FILE, default=[]))
+    seen_keys = set(load_json(SEEN_FILE, default=[]))
     initialized_authors = set(load_json(INITIALIZED_FILE, default=[]))
 
     log(f"Autori da controllare: {len(authors)}")
-    log(f"Libri gia' visti: {len(seen_ids)} | Autori inizializzati: {len(initialized_authors)}")
+    log(f"Opere gia' viste: {len(seen_keys)} | Autori inizializzati: {len(initialized_authors)}")
     log("")
 
     total_sent = 0
     for index, author in enumerate(authors):
-        total_sent += process_author(author, seen_ids, initialized_authors, token, chat_id, dry_run)
+        total_sent += process_author(author, seen_keys, initialized_authors, token, chat_id, dry_run)
         if index < len(authors) - 1:
             time.sleep(REQUEST_DELAY_SECONDS)
 
@@ -359,7 +418,7 @@ def main():
         return
 
     # Persistenza dello stato (la Action committera' i file modificati).
-    save_json(SEEN_FILE, sorted(seen_ids))
+    save_json(SEEN_FILE, sorted(seen_keys))
     save_json(INITIALIZED_FILE, sorted(initialized_authors))
     log("Stato salvato (seen_books.json, initialized_authors.json).")
 

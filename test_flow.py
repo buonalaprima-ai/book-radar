@@ -4,9 +4,11 @@ Test d'integrazione OFFLINE del flusso completo (process_author).
 
 Sostituisce (monkeypatch) la chiamata di rete a Google Books con risposte
 finte, cosi' da verificare senza rete:
-  1. primo avvio  -> inizializza, NESSUNA notifica
-  2. run seguente -> un nuovo libro genera UNA notifica
-  3. gli omonimi vengono scartati dal filtro
+  1. primo avvio   -> inizializza, NESSUNA notifica
+  2. run seguente  -> un nuovo titolo genera UNA notifica
+  3. filtro lingua -> le edizioni non italiane vengono scartate
+  4. dedup opera   -> due edizioni dello stesso titolo = una sola notifica
+  5. omonimo       -> autore diverso scartato dal filtro
 
 Telegram gira sempre in dry-run (nessun invio reale).
 
@@ -16,12 +18,13 @@ Eseguibile direttamente: `python test_flow.py`
 import check
 
 
-def _volume(vol_id, title, authors, date="2024-01-01"):
+def _volume(vol_id, title, authors, lang="it", date="2024-01-01"):
     return {
         "id": vol_id,
         "volumeInfo": {
             "title": title,
             "authors": authors,
+            "language": lang,
             "publishedDate": date,
             "infoLink": f"https://books.google.com/{vol_id}",
         },
@@ -35,38 +38,48 @@ AUTHOR = {
 }
 
 
+def _key(title):
+    return check.work_key("John Niven", title)
+
+
 def test_flusso_completo():
     seen = set()
     initialized = set()
 
-    # --- Run 1: primo avvio. Catalogo storico + un omonimo da scartare.
-    check.google_books_search = lambda query, api_key=None, max_results=40: [
-        _volume("book-1", "Catalogo Storico 1", ["John Niven"]),
-        _volume("book-2", "Catalogo Storico 2", ["John Niven"]),
-        _volume("book-omonimo", "Fantascienza", ["Larry Niven"]),  # va scartato
+    # --- Run 1: primo avvio. Catalogo IT + un'edizione EN + un omonimo.
+    check.google_books_search = lambda query, **kw: [
+        _volume("it-1", "Maschio Bianco Etero", ["John Niven"], lang="it"),
+        _volume("it-2", "A Volte Ritorno", ["John Niven"], lang="it"),
+        _volume("en-1", "Straight White Male", ["John Niven"], lang="en"),   # lingua sbagliata
+        _volume("hist-1", "Martin Van Buren", ["John Niven"], lang="it"),    # omonimo storico (titolo a se')
     ]
     sent = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
 
     assert sent == 0, "al primo avvio non si deve notificare nulla"
     assert "John Niven" in initialized, "l'autore deve risultare inizializzato"
-    assert seen == {"book-1", "book-2"}, "il catalogo storico va assorbito nel visto"
-    assert "book-omonimo" not in seen, "l'omonimo non deve entrare nel visto"
+    # Solo le opere italiane entrano nel visto (incluso l'omonimo IT, limite noto del match per nome).
+    assert _key("Maschio Bianco Etero") in seen
+    assert _key("A Volte Ritorno") in seen
+    assert _key("Straight White Male") not in seen, "l'edizione EN va scartata dal filtro lingua"
 
-    # --- Run 2: esce un libro nuovo. Resta l'omonimo (sempre da scartare).
-    check.google_books_search = lambda query, api_key=None, max_results=40: [
-        _volume("book-3", "Romanzo Nuovo 2024", ["John Niven"], "2024-09-01"),
-        _volume("book-1", "Catalogo Storico 1", ["John Niven"]),
-        _volume("book-omonimo-2", "Altro Larry", ["Larry Niven"]),
+    # --- Run 2: esce un titolo nuovo in italiano + ricompare un'edizione EN (da scartare).
+    check.google_books_search = lambda query, **kw: [
+        _volume("it-3", "Padri Nostri", ["John Niven"], lang="it", date="2026-02-02"),
+        _volume("it-1", "Maschio Bianco Etero", ["John Niven"], lang="it"),
+        _volume("en-2", "The Fathers", ["John Niven"], lang="en"),
     ]
     sent = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
 
-    assert sent == 1, "deve notificare esattamente il libro nuovo"
-    assert "book-3" in seen, "il libro nuovo va aggiunto al visto"
-    assert "book-omonimo-2" not in seen, "l'omonimo non deve entrare nel visto"
+    assert sent == 1, "deve notificare esattamente il nuovo titolo italiano"
+    assert _key("Padri Nostri") in seen
 
-    # --- Run 3: nessuna novita'. Stesso identico catalogo.
+    # --- Run 3: due edizioni italiane DELLO STESSO titolo gia' notificato -> 0 notifiche.
+    check.google_books_search = lambda query, **kw: [
+        _volume("it-3a", "Padri Nostri", ["John Niven"], lang="it"),
+        _volume("it-3b", "Padri Nostri", ["John Niven"], lang="it"),  # ristampa, ID diverso
+    ]
     sent = check.process_author(AUTHOR, seen, initialized, "tok", "chat", dry_run=True)
-    assert sent == 0, "senza nuovi libri non si deve notificare"
+    assert sent == 0, "edizioni diverse dello stesso titolo non devono ri-notificare"
 
 
 def _run_all():
