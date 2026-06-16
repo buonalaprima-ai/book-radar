@@ -3,5 +3,10 @@
     "name": "John Niven",
     "canonicalAuthor": "John Niven",
     "googleBooksQuery": "inauthor:\"John Niven\""
+  },
+  {
+    "name": "Stephen King",
+    "canonicalAuthor": "Stephen King",
+    "googleBooksQuery": "inauthor:\"Stephen King\""
   }
 ]
