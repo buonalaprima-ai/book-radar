@@ -34,5 +34,12 @@
     "googleBooksQueries": [
       "inauthor:\"Michael McDowell\""
     ]
+  },
+  {
+    "name": "Sally Rooney",
+    "canonicalAuthor": "Sally Rooney",
+    "googleBooksQueries": [
+      "inauthor:\"Sally Rooney\""
+    ]
   }
 ]
