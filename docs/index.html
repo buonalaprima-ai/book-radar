@@ -145,6 +145,7 @@
     </div>
 
     <div id="globalMsg"></div>
+    <div id="quotaInfo" class="muted" style="margin-bottom: 16px;"></div>
 
     <!-- LISTA AUTORI -->
     <div class="card">
@@ -288,6 +289,7 @@ async function loadAuthors() {
         authors = file ? JSON.parse(file.content) : [];
         renderAuthors();
         showMsg("globalMsg", "", "");
+        refreshQuota();
     } catch (e) {
         document.getElementById("authorsList").innerHTML = "";
         showMsg("globalMsg", "Errore nel caricamento: " + e.message, "error");
@@ -342,11 +344,44 @@ function gbUrl(query, extra, startIndex) {
     return url;
 }
 // Pagina fino a esaurire i risultati (come lo script): copertura completa.
+// MARK: - Stima quota Google (Google non espone la quota residua via API).
+const UI_CALLS_KEY = "bookradar_ui_calls";
+function todayStr() {
+    return new Date().toLocaleDateString("sv-SE");  // formato YYYY-MM-DD
+}
+function bumpUiCalls() {
+    let u = {};
+    try { u = JSON.parse(localStorage.getItem(UI_CALLS_KEY) || "{}"); } catch (e) { u = {}; }
+    if (u.date !== todayStr()) { u = { date: todayStr(), count: 0 }; }
+    u.count = (u.count || 0) + 1;
+    localStorage.setItem(UI_CALLS_KEY, JSON.stringify(u));
+}
+function uiCallsToday() {
+    try {
+        const u = JSON.parse(localStorage.getItem(UI_CALLS_KEY) || "{}");
+        return (u.date === todayStr()) ? (u.count || 0) : 0;
+    } catch (e) { return 0; }
+}
+async function refreshQuota() {
+    const el = document.getElementById("quotaInfo");
+    if (!el) { return; }
+    const ui = uiCallsToday();
+    let script = null;  // chiamate dello script oggi (da usage.json nel repo)
+    if (settings.token) {
+        try {
+            const f = await ghGetFile("usage.json");
+            if (f) { script = JSON.parse(f.content)[todayStr()] || 0; }
+        } catch (e) { /* usage.json può non esistere ancora */ }
+    }
+    const used = (script || 0) + ui;
+    el.textContent = `Quota Google oggi (stima): ~${used}/1000 — script ${script === null ? "?" : script}, interfaccia ${ui}`;
+}
 async function gbSearchAll(query, extra) {
     const collected = [];
     const seenIds = new Set();
     let start = 0;
     for (let page = 0; page < 8; page++) {
+        bumpUiCalls();
         const res = await fetch(gbUrl(query, extra, start));
         const data = await res.json();
         if (data.error) {
@@ -449,6 +484,8 @@ async function searchVariants() {
         window._variantList = list;
     } catch (e) {
         showMsg("addMsg", "Errore Google Books: " + e.message, "error");
+    } finally {
+        refreshQuota();
     }
 }
 function selectVariant(i) {
@@ -540,6 +577,8 @@ async function previewAuthor(index) {
         `).join("");
     } catch (e) {
         document.getElementById("previewBody").innerHTML = `<div class="msg error">Errore: ${e.message}</div>`;
+    } finally {
+        refreshQuota();
     }
 }
 
@@ -551,6 +590,7 @@ document.getElementById("confirmAdd").addEventListener("click", confirmAdd);
 document.getElementById("searchInput").addEventListener("keydown", e => { if (e.key === "Enter") { searchVariants(); } });
 
 loadSettings();
+refreshQuota();
 if (settings.token) {
     loadAuthors();
 }

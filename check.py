@@ -37,7 +37,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # MARK: - Costanti
@@ -71,6 +71,13 @@ INITIALIZED_FILE = ROOT / "initialized_authors.json"
 # che lo script gira davvero ogni giorno.
 STATUS_JSON_FILE = ROOT / "last_run.json"
 STATUS_MD_FILE = ROOT / "STATUS.md"
+USAGE_FILE = ROOT / "usage.json"  # chiamate Google per giorno (ultimi giorni)
+
+# Quota giornaliera della API key Google Books (per la stima "usate/totali").
+GOOGLE_DAILY_QUOTA = 1000
+
+# Contatore delle chiamate HTTP a Google Books nella run corrente.
+google_call_count = 0
 
 
 # MARK: - Logging
@@ -125,7 +132,24 @@ def save_json(path, data):
 
 # MARK: - Stato / battito cardiaco
 
-def write_status(authors_count, works_tracked, notifications_sent, had_errors):
+def update_usage(now, calls):
+    """
+    Accumula le chiamate Google per giorno in usage.json (tiene gli ultimi giorni).
+    Ritorna il totale di chiamate di OGGI (tutte le run incluse questa).
+    """
+    today = now.strftime("%Y-%m-%d")
+    usage = load_json(USAGE_FILE, default={})
+    if not isinstance(usage, dict):
+        usage = {}
+    usage[today] = usage.get(today, 0) + calls
+    # Conserva solo gli ultimi 14 giorni per non far crescere il file.
+    cutoff = (now - timedelta(days=14)).strftime("%Y-%m-%d")
+    usage = {day: count for day, count in usage.items() if day >= cutoff}
+    save_json(USAGE_FILE, usage)
+    return usage[today]
+
+
+def write_status(authors_count, works_tracked, notifications_sent, had_errors, run_calls, today_calls):
     """
     Scrive last_run.json (machine) e STATUS.md (leggibile su GitHub) con il
     timestamp dell'ultima esecuzione e un riepilogo. Viene aggiornato a OGNI
@@ -139,6 +163,9 @@ def write_status(authors_count, works_tracked, notifications_sent, had_errors):
         "authors_checked": authors_count,
         "works_tracked": works_tracked,
         "notifications_sent": notifications_sent,
+        "google_calls_this_run": run_calls,
+        "google_calls_today": today_calls,
+        "google_daily_quota": GOOGLE_DAILY_QUOTA,
     }
     save_json(STATUS_JSON_FILE, status)
 
@@ -149,7 +176,9 @@ def write_status(authors_count, works_tracked, notifications_sent, had_errors):
         f"- Esito: {outcome_icon} {status['outcome']}\n"
         f"- Autori controllati: {authors_count}\n"
         f"- Opere monitorate: {works_tracked}\n"
-        f"- Notifiche inviate in questo run: {notifications_sent}\n\n"
+        f"- Notifiche inviate in questo run: {notifications_sent}\n"
+        f"- Chiamate Google in questo run: {run_calls}\n"
+        f"- Chiamate Google oggi (script): {today_calls} / {GOOGLE_DAILY_QUOTA}\n\n"
         "> File aggiornato automaticamente a ogni esecuzione dello script.\n"
         "> Se questa data non avanza di giorno in giorno, il job sul Mac non sta girando.\n"
     )
@@ -180,6 +209,8 @@ def _fetch_page(query, start_index, api_key, lang_restrict, country):
     # Google restituisce ogni tanto 503/errori di rete transitori: qualche retry.
     last_error = None
     for attempt in range(3):
+        global google_call_count
+        google_call_count += 1  # ogni richiesta HTTP consuma una unita' di quota
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -519,6 +550,7 @@ def main():
 
     log("")
     log(f"Totale notifiche inviate: {total_sent}")
+    log(f"Chiamate Google in questo run: {google_call_count}")
 
     if dry_run:
         log("[DRY-RUN] Stato NON salvato su disco.")
@@ -527,8 +559,10 @@ def main():
     # Persistenza dello stato (run.sh committera' i file modificati).
     save_json(SEEN_FILE, sorted(seen_keys))
     save_json(INITIALIZED_FILE, sorted(initialized_authors))
-    write_status(len(authors), len(seen_keys), total_sent, had_errors)
-    log("Stato salvato (seen_books.json, initialized_authors.json, last_run.json, STATUS.md).")
+    today_calls = update_usage(datetime.now().astimezone(), google_call_count)
+    write_status(len(authors), len(seen_keys), total_sent, had_errors, google_call_count, today_calls)
+    log(f"Chiamate Google oggi (script): {today_calls} / {GOOGLE_DAILY_QUOTA}")
+    log("Stato salvato (seen_books.json, initialized_authors.json, last_run.json, STATUS.md, usage.json).")
 
 
 if __name__ == "__main__":
