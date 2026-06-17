@@ -403,17 +403,21 @@ async function searchVariants() {
                 }
                 const rec = variants[key];
                 rec.count++;
-                rec.spellings[author] = (rec.spellings[author] || 0) + 1;
+                // Per ogni grafia traccio quante edizioni totali e quante italiane,
+                // cosi' poi salvo solo le query delle grafie con edizioni italiane.
+                if (!rec.spellings[author]) { rec.spellings[author] = { total: 0, it: 0 }; }
+                rec.spellings[author].total++;
                 if (isItalian) {
                     rec.italianCount++;
+                    rec.spellings[author].it++;
                     if (rec.samples.length < 3 && info.title) { rec.samples.push(info.title); }
                 }
             }
         }
-        // Per ogni variante usa la grafia più frequente come etichetta.
+        // Etichetta = grafia con più edizioni italiane (poi, a parità, più totali).
         for (const k in variants) {
             const sp = variants[k].spellings;
-            variants[k].name = Object.keys(sp).sort((a, b) => sp[b] - sp[a])[0];
+            variants[k].name = Object.keys(sp).sort((a, b) => sp[b].it - sp[a].it || sp[b].total - sp[a].total)[0];
         }
         const list = Object.values(variants).sort((a, b) => b.italianCount - a.italianCount || b.count - a.count);
         if (!list.length) {
@@ -452,9 +456,13 @@ async function confirmAdd() {
         showMsg("addMsg", "Questo autore è già nella lista.", "error");
         return;
     }
-    // Una query inauthor per OGNI grafia (diacritici): inauthor e' sensibile agli
-    // accenti e l'OR non funziona, quindi le interroghiamo tutte e lo script unisce.
-    const spellings = Object.keys(selectedVariant.spellings || { [canonical]: 1 });
+    // Una query inauthor solo per le grafie che hanno DAVVERO edizioni italiane
+    // (risparmia chiamate: inauthor e' sensibile agli accenti, l'OR non funziona).
+    const sp = selectedVariant.spellings || {};
+    let spellings = Object.keys(sp).filter(s => sp[s].it > 0);
+    if (!spellings.length) {
+        spellings = [canonical];  // fallback: nessuna IT, salvo almeno la grafia scelta
+    }
     const entry = {
         name: label,
         canonicalAuthor: canonical,
