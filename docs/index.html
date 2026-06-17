@@ -132,10 +132,10 @@
         <details id="settingsBox">
             <summary>Impostazioni (token GitHub, repo)</summary>
             <div style="margin-top: 12px;">
-                <label for="token">GitHub token — l'unica cosa da inserire (Contents: Read and write)</label>
+                <label for="token">GitHub token (Contents: Read and write)</label>
                 <input type="password" id="token" placeholder="github_pat_..." autocomplete="off" />
-                <label for="gkey">Google Books API key (opzionale)</label>
-                <input type="password" id="gkey" placeholder="lascia vuoto se non serve" autocomplete="off" />
+                <label for="gkey">Google Books API key — richiesta (le ricerche non funzionano senza)</label>
+                <input type="password" id="gkey" placeholder="AIza..." autocomplete="off" />
                 <div style="margin-top: 12px;" class="row">
                     <button id="saveSettings">Salva impostazioni</button>
                     <span class="muted">Salvate solo in questo browser.</span>
@@ -379,12 +379,24 @@ function authorQueries(a) {
     }
     return a.googleBooksQuery ? [a.googleBooksQuery] : [];
 }
+// Google richiede la API key (la quota anonima condivisa e' cronicamente esaurita).
+function googleKeyMissing() {
+    if (settings.gkey) {
+        return false;
+    }
+    document.getElementById("settingsBox").open = true;
+    return true;
+}
 async function searchVariants() {
     const input = document.getElementById("searchInput").value.trim();
     document.getElementById("variants").innerHTML = "";
     document.getElementById("addConfirm").classList.add("hidden");
     selectedVariant = null;
     if (!input) {
+        return;
+    }
+    if (googleKeyMissing()) {
+        showMsg("addMsg", "Serve la API key di Google: inseriscila nelle impostazioni (⚙️).", "error");
         return;
     }
     showMsg("addMsg", spinner("Cerco su Google Books (può richiedere qualche secondo)..."), "info");
@@ -489,6 +501,10 @@ async function previewAuthor(index) {
     const card = document.getElementById("previewCard");
     card.style.display = "block";
     document.getElementById("previewTitle").textContent = `Anteprima — ${a.name}`;
+    if (googleKeyMissing()) {
+        document.getElementById("previewBody").innerHTML = `<div class="msg error">Serve la API key di Google: inseriscila nelle impostazioni (⚙️).</div>`;
+        return;
+    }
     document.getElementById("previewBody").innerHTML = spinner("Carico i libri italiani (può richiedere qualche secondo)...");
     card.scrollIntoView({ behavior: "smooth" });
     try {
@@ -535,9 +551,11 @@ document.getElementById("confirmAdd").addEventListener("click", confirmAdd);
 document.getElementById("searchInput").addEventListener("keydown", e => { if (e.key === "Enter") { searchVariants(); } });
 
 loadSettings();
-if (settings.token && settings.repo) {
+if (settings.token) {
     loadAuthors();
-} else {
+}
+// Apre le impostazioni se manca qualcosa di obbligatorio (token o API key Google).
+if (!settings.token || !settings.gkey) {
     document.getElementById("settingsBox").open = true;
 }
 </script>
