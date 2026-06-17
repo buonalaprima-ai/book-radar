@@ -376,14 +376,24 @@ async function refreshQuota() {
     const used = (script || 0) + ui;
     el.textContent = `Quota Google oggi (stima): ~${used}/1000 — script ${script === null ? "?" : script}, interfaccia ${ui}`;
 }
+// fetch JSON con timeout: senza timeout una richiesta appesa bloccherebbe per sempre.
+async function fetchJson(url, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 20000);
+    try {
+        const res = await fetch(url, { signal: controller.signal });
+        return await res.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
 async function gbSearchAll(query, extra) {
     const collected = [];
     const seenIds = new Set();
     let start = 0;
     for (let page = 0; page < 8; page++) {
         bumpUiCalls();
-        const res = await fetch(gbUrl(query, extra, start));
-        const data = await res.json();
+        const data = await fetchJson(gbUrl(query, extra, start));
         if (data.error) {
             throw new Error(data.error.message || "Google Books error");
         }
@@ -458,7 +468,9 @@ async function searchVariants() {
             showMsg("addMsg", "Nessun autore trovato. Prova un altro testo.", "error");
             return;
         }
-        groupList = groupList.slice(0, 6);  // limita le chiamate di verifica
+        // Tiene i 3 gruppi più frequenti (limita le chiamate di verifica e i tempi).
+        const freq = g => Object.values(g.spellings).reduce((a, b) => a + b, 0);
+        groupList = groupList.sort((a, b) => freq(b) - freq(a)).slice(0, 3);
 
         // Passo 2 - VERIFICA con inauthor (la stessa query del monitoraggio) per il conteggio REALE.
         showMsg("addMsg", spinner("Conto le edizioni italiane (può richiedere qualche secondo)..."), "info");
@@ -469,7 +481,12 @@ async function searchVariants() {
             const worksByTitle = new Map();
             const italianSpellings = [];
             for (const sp of distinct) {
-                const vols = await gbSearchAll(`inauthor:"${sp}"`, `&langRestrict=${LANG}&country=${COUNTRY}`);
+                let vols = [];
+                try {
+                    vols = await gbSearchAll(`inauthor:"${sp}"`, `&langRestrict=${LANG}&country=${COUNTRY}`);
+                } catch (err) {
+                    continue;  // una grafia che fallisce/scade non deve bloccare tutto
+                }
                 const targetKey = stripDiacritics(sp);
                 let found = 0;
                 for (const v of vols) {
