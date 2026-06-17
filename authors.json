@@ -62,5 +62,12 @@
     "googleBooksQueries": [
       "inauthor:\"Nathan Hill\""
     ]
+  },
+  {
+    "name": "Bernardo Zannoni",
+    "canonicalAuthor": "Bernardo Zannoni",
+    "googleBooksQueries": [
+      "inauthor:\"Bernardo Zannoni\""
+    ]
   }
 ]
