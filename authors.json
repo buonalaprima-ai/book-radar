@@ -55,5 +55,12 @@
     "googleBooksQueries": [
       "inauthor:\"Paul Murray\""
     ]
+  },
+  {
+    "name": "Nathan Hill",
+    "canonicalAuthor": "Nathan Hill",
+    "googleBooksQueries": [
+      "inauthor:\"Nathan Hill\""
+    ]
   }
 ]
