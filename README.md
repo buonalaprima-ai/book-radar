@@ -1,196 +1,228 @@
 # 📚 Book Radar
 
-Notifiche Telegram quando esce un nuovo libro di un autore che segui.
+Notifiche Telegram quando esce un nuovo libro (edizione **italiana**) di un autore che segui.
 
-Niente backend sempre attivo: lo **stato vive interamente nel repo GitHub**. Un
-job schedulato (`launchd`) sul Mac fa polling su Google Books una volta al
-giorno, e un'app iOS (cartella `ios/`, vedi PARTE 2) fa da backoffice per
-gestire la lista autori.
+Niente backend sempre attivo: lo **stato vive interamente nel repo GitHub**. Un job
+schedulato (`launchd`) sul Mac fa il polling su Google Books **una volta al giorno**,
+e una piccola **interfaccia web** (GitHub Pages) fa da backoffice per gestire la lista
+autori — leggendo/scrivendo `authors.json` nel repo via GitHub API, senza server.
 
-> **Perché sul Mac e non su una GitHub Action?** Google Books restituisce le
-> edizioni in base alla geolocalizzazione dell'IP della richiesta. I runner
-> GitHub hanno IP USA e **non vedono le edizioni italiane**. Girando dal Mac
-> (IP italiano) il filtro "solo italiano" funziona davvero. Lo stato resta
-> comunque nel repo: il job fa `git pull` prima e `git push` dopo.
+> **Perché sul Mac e non su una GitHub Action?** Google Books restituisce le edizioni
+> in base alla geolocalizzazione dell'IP della richiesta. I runner GitHub hanno IP USA
+> e **non vedono le edizioni italiane**. Girando dal Mac (IP italiano) il filtro "solo
+> italiano" funziona davvero. Lo stato resta comunque nel repo: il job fa `git pull`
+> prima e `git push` dopo.
 
 ---
 
 ## Come funziona
 
 ```
-authors.json ──> check.py ──> Google Books API ──> filtro autore ──> nuovi libri?
-                                                                          │
-                              seen_books.json <── aggiorna stato <── notifica Telegram
+                    ┌── interfaccia web (GitHub Pages) ──> modifica authors.json via GitHub API
+                    │
+authors.json ──> check.py (sul Mac, ogni giorno) ──> Google Books ──> filtro autore+lingua
+                    │                                                          │
+                    │                              dedup per opera ──> nuova? ──> Telegram
+                    └──> seen_books.json / STATUS.md / usage.json  <── aggiorna stato + git push
 ```
 
-- **`authors.json`** — la tua lista di autori seguiti.
-- **`seen_books.json`** — chiavi delle **opere** gia notificate (`autore::titolo`).
-  Si ragiona per opera, non per singola edizione: così ristampe/edizioni diverse
-  dello stesso titolo non generano notifiche doppie.
-- **`initialized_authors.json`** — autori gia "inizializzati", così aggiungere un
-  nuovo autore non ti sommerge di notifiche del suo catalogo storico.
+### File nel repo
 
-### Lingua e dedup (importante)
+| File | Contenuto |
+|------|-----------|
+| `authors.json` | la tua lista di autori seguiti |
+| `seen_books.json` | chiavi delle **opere** già notificate (`autore::titolo`) |
+| `initialized_authors.json` | autori già "inizializzati" (catalogo storico assorbito) |
+| `last_run.json` / `STATUS.md` | "battito": data ultimo controllo + riepilogo |
+| `usage.json` | chiamate Google per giorno (stima quota) |
+| `check.py` | lo script di polling (solo standard library Python, zero dipendenze) |
+| `run.sh` | wrapper del job: `git pull` → `check.py` → `git push` |
+| `com.bookradar.check.plist` | il job `launchd` (schedulazione quotidiana 09:00) |
+| `docs/index.html` | l'interfaccia web (single-file, pubblicata da GitHub Pages) |
+| `test_filter.py` / `test_flow.py` | test (nessuna rete richiesta) |
 
-Google Books elenca la stessa opera in più edizioni e lingue, ognuna con un ID
-di volume diverso, **e il set di edizioni restituito dipende dalla regione del
-server** che fa la richiesta. Per avere notifiche pulite e deterministiche:
+---
 
-1. **Filtro lingua**: vengono considerate solo le edizioni con
-   `volumeInfo.language` uguale alla lingua scelta (default **italiano**,
-   configurabile con la variabile d'ambiente `BOOK_RADAR_LANG`). La lingua è una
-   proprietà del volume, quindi il risultato non dipende da dove gira il polling.
-2. **Dedup per opera**: i volumi vengono raggruppati per titolo normalizzato →
-   **una sola notifica per titolo**.
+## Concetti chiave
 
-> Nota: due opere diverse con titolo tradotto diverso (es. l'originale inglese
-> *The Fathers* e l'edizione italiana *Padri nostri*) restano notifiche separate,
-> perché il titolo è diverso. Con `BOOK_RADAR_LANG=it` riceverai comunque solo
-> l'edizione italiana.
-- **`check.py`** — lo script di polling (solo standard library Python, zero dipendenze).
-- **`run.sh`** — wrapper eseguito dal job: `git pull` → `check.py` → `git push`.
-- **`com.bookradar.check.plist`** — il job `launchd` (schedulazione quotidiana).
+### Solo edizioni italiane + dedup per opera
 
-### Il filtro di precisione
+Google Books elenca la stessa opera in più edizioni e lingue (ognuna con un ID diverso).
+Per avere notifiche pulite:
 
-Google Books con `inauthor:"..."` a volte restituisce libri di **omonimi** o altri
-autori. Per ogni volume lo script verifica che il campo `authors` contenga davvero
-il `canonicalAuthor` (match esatto, case-insensitive). Così niente falsi positivi.
+1. **Filtro lingua**: solo i volumi con `volumeInfo.language` uguale alla lingua scelta
+   (default **italiano**, override con `BOOK_RADAR_LANG`). La lingua è una proprietà del
+   volume, quindi indipendente da dove gira il polling.
+2. **Dedup per opera**: i volumi vengono raggruppati per **titolo normalizzato** → una sola
+   notifica per titolo, anche se esistono più edizioni/ristampe.
+
+### Copertura completa (paginazione)
+
+`orderBy=newest` di Google **non** ordina in modo affidabile per data, e una singola pagina
+(~20 risultati) non copre i cataloghi prolifici. Lo script **pagina fino a esaurire i
+risultati**, così l'ordine inaffidabile non conta e una nuova uscita viene sempre catturata.
+
+### Filtro di precisione (autore esatto, insensibile ai diacritici)
+
+Per ogni volume lo script verifica che il campo `authors` contenga davvero l'autore canonico
+(match esatto, **case-insensitive e senza diacritici**: `Ryū` = `Ryü` = `Ryu`). Così scarta
+gli omonimi e gestisce i nomi accentati.
+
+### Grafie multiple per autore
+
+Google a volte indicizza lo stesso autore con grafie diverse (es. `Ryu`/`Ryū`/`Ryü Murakami`),
+e `inauthor:"..."` è sensibile agli accenti mentre l'operatore `OR` non funziona. Per questo un
+autore può avere **più query** (`googleBooksQueries`): lo script le interroga tutte e unisce i
+risultati. L'interfaccia web costruisce automaticamente queste query in fase di aggiunta.
 
 ### Primo avvio di un autore
 
-La prima volta che un autore viene processato, lo script **assorbe tutto il suo
-catalogo attuale in `seen_books.json` senza notificare**, e lo segna in
-`initialized_authors.json`. Da lì in poi notifica solo i libri nuovi.
+La prima volta che un autore viene processato, lo script **assorbe tutto il suo catalogo
+italiano attuale in `seen_books.json` senza notificare**, e lo segna in
+`initialized_authors.json`. Da lì in poi notifica solo i libri **nuovi**.
+
+---
+
+## Formato di `authors.json`
+
+```json
+[
+  {
+    "name": "Ryu Murakami",
+    "canonicalAuthor": "Ryu Murakami",
+    "googleBooksQueries": [
+      "inauthor:\"Ryū Murakami\"",
+      "inauthor:\"Ryü Murakami\""
+    ]
+  }
+]
+```
+
+- `name`: etichetta leggibile, come la scrivi tu.
+- `canonicalAuthor`: nome usato per il confronto (insensibile a maiuscole/diacritici).
+- `googleBooksQueries`: una query `inauthor` per ogni grafia con edizioni italiane.
+  (È supportato anche il vecchio campo singolo `googleBooksQuery` per compatibilità.)
+
+Normalmente non lo modifichi a mano: ci pensa l'**interfaccia web**.
 
 ---
 
 ## Setup passo-passo
 
-### 1. Crea il bot Telegram (BotFather)
+### 1. Bot Telegram (BotFather)
 
-1. Su Telegram apri una chat con **[@BotFather](https://t.me/BotFather)**.
-2. Manda `/newbot` e segui le istruzioni (nome + username che finisce per `bot`).
-3. BotFather ti dà un **token** tipo `123456789:ABCdef...`. Questo è il tuo
-   `TELEGRAM_BOT_TOKEN`. Tienilo segreto.
+1. Su Telegram apri **[@BotFather](https://t.me/BotFather)** (con la spunta blu).
+2. Manda `/newbot`, scegli nome e username (deve finire per `bot`).
+3. Ottieni un **token** tipo `123456789:ABCdef...` → è il tuo `TELEGRAM_BOT_TOKEN`.
 
-### 2. Ottieni il tuo chat id
+### 2. Chat id
 
-1. Apri una chat col bot appena creato e manda un messaggio qualsiasi (es. `ciao`).
-   Questo passaggio è **obbligatorio**: il bot non può scriverti per primo.
-2. Visita (sostituendo `<TOKEN>`):
-   `https://api.telegram.org/bot<TOKEN>/getUpdates`
-3. Nel JSON cerca `"chat":{"id":123456789,...}`. Quel numero è il tuo
-   `TELEGRAM_CHAT_ID`.
+1. Apri una chat col tuo bot e mandagli un messaggio (es. `ciao`) — obbligatorio: il bot non
+   può scriverti per primo.
+2. Visita `https://api.telegram.org/bot<TOKEN>/getUpdates` e cerca `"chat":{"id":...}`.
+   Quel numero è il tuo `TELEGRAM_CHAT_ID`.
 
-> Per ricevere le notifiche in un **gruppo**: aggiungi il bot al gruppo, manda un
-> messaggio nel gruppo, poi rileggi `getUpdates`: il chat id del gruppo è negativo
-> (es. `-100123...`).
+### 3. API key Google Books (obbligatoria)
 
-### 3. Test in locale (consigliato prima di tutto)
+La quota anonima condivisa di Google è cronicamente esaurita, quindi **serve una API key**.
+
+1. Vai su [Google Cloud Console](https://console.cloud.google.com/), crea un progetto.
+2. Abilita la **Books API**: <https://console.cloud.google.com/apis/library/books.googleapis.com>.
+3. **Credentials → Create credentials → API key**. Copia la chiave `AIza...`.
+   (Con un'organizzazione Google può servire restringere la chiave alla Books API: in tal caso
+   abilita prima la Books API, poi crea la chiave.)
+
+### 4. Configura i segreti locali (`.env`)
 
 ```bash
-# 1. Configura i segreti localmente (NON verranno committati: .env è gitignorato)
 cp .env.example .env
-#   poi apri .env e incolla TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID
-
-# 2. Verifica che Telegram funzioni: manda un messaggio di prova
-python3 check.py --test-notification
-
-# 3. Lancia i test (nessuna rete richiesta)
-python3 test_filter.py
-python3 test_flow.py
-
-# 4. DRY RUN: fa tutto il polling e stampa cosa NOTIFICHEREBBE,
-#    senza mandare Telegram e senza scrivere su disco
-python3 check.py --dry-run
-
-# 5. Run reale in locale (manda Telegram, aggiorna i file di stato)
-python3 check.py
+# poi apri .env e incolla:
+#   TELEGRAM_BOT_TOKEN=...
+#   TELEGRAM_CHAT_ID=...
+#   GOOGLE_BOOKS_API_KEY=AIza...
 ```
 
-> **Quota Google Books:** l'endpoint funziona senza API key, ma la quota anonima è
-> condivisa e a volte restituisce `HTTP 429`. Per uso personale (1 run/giorno) di
-> norma basta. Se ci sbatti spesso, crea una API key su Google Cloud Console
-> (abilita "Books API") e mettila in `.env` come `GOOGLE_BOOKS_API_KEY`.
-
-### 4. Crea la repo GitHub e fai il primo push
-
-```bash
-cd book-radar
-git init
-git add .
-git commit -m "Book Radar: setup iniziale"
-# Crea una repo PRIVATA su github.com, poi:
-git remote add origin https://github.com/<tuo-utente>/book-radar.git
-git branch -M main
-git push -u origin main
-```
-
-> Verifica che `.env` **non** sia tra i file committati (`git status` non deve
-> mostrarlo). È protetto da `.gitignore`. Il push di `seen_books.json` userà le
-> stesse credenziali (token GitHub, vedi sotto), già memorizzate nel keychain.
+Il file `.env` è **gitignorato**: non finisce mai nel repo.
 
 ### 5. Schedulazione sul Mac (job giornaliero)
 
-Il polling gira sul Mac tramite `launchd`, così Google Books vede le edizioni
-italiane (vedi nota in cima al README). Sono due comandi:
-
 ```bash
-# Installa il job (copia il plist tra i LaunchAgents dell'utente)
+# Installa il job tra i LaunchAgents dell'utente
 cp com.bookradar.check.plist ~/Library/LaunchAgents/
 
 # Caricalo (da ora gira ogni giorno alle 09:00)
 launchctl load ~/Library/LaunchAgents/com.bookradar.check.plist
 ```
 
-Per **lanciarlo subito a mano** (test, senza aspettare le 09:00):
+> **Importante:** il progetto deve stare **fuori** da `~/Desktop`, `~/Documenti`, `~/Download`
+> (cartelle protette da macOS/TCC), altrimenti `launchd` non può accedervi. Posizione
+> consigliata: `~/book-radar`.
 
-```bash
-launchctl start com.bookradar.check
-# poi guarda il log:
-tail -n 30 book-radar.log
-```
+- Mac acceso alle 09:00 → parte alle 09:00.
+- Mac spento/sospeso alle 09:00 → parte al **primo risveglio/login successivo** (recupera
+  l'esecuzione mancata una volta). Quindi serve accendere il Mac almeno una volta al giorno.
+- Cambiare orario: modifica `Hour`/`Minute` nel plist, poi `unload` + `load`.
 
-Per **disattivarlo**:
+### 6. Interfaccia web (GitHub Pages)
 
-```bash
-launchctl unload ~/Library/LaunchAgents/com.bookradar.check.plist
-```
+Il repo deve essere **pubblico** (Pages gratis richiede repo pubblico). Nessun segreto è nel
+repo: il `.env` è escluso, e il token GitHub dell'interfaccia vive solo nel browser.
 
-> Se il Mac è spento o sospeso alle 09:00, `launchd` esegue il job al primo
-> risveglio successivo. Per cambiare orario, modifica `Hour`/`Minute` nel plist,
-> poi `unload` + `load` di nuovo.
+1. **Settings → Pages → Source: Deploy from a branch → `main` / cartella `/docs`** → Save.
+2. Dopo ~1 minuto Pages ti dà l'indirizzo: `https://<tuo-utente>.github.io/book-radar/`.
+3. Apri l'indirizzo, poi **⚙️ Impostazioni** e inserisci:
+   - **GitHub token** (vedi sotto)
+   - **Google Books API key** (la stessa del `.env`)
 
-### Verificare che lo script giri davvero ogni giorno
+#### Token GitHub per l'interfaccia
 
-A ogni esecuzione lo script aggiorna e ripubblica nel repo:
+L'interfaccia modifica `authors.json` via GitHub API. Crea un **fine-grained token**:
 
-- **`STATUS.md`** — leggibile direttamente su GitHub (apri il file nel repo):
-  mostra **data e ora dell'ultimo controllo**, esito, numero di opere monitorate
-  e notifiche inviate. Se quella data non avanza di giorno in giorno, il job non
-  sta girando.
-- **`last_run.json`** — la stessa informazione in formato machine-readable (utile
-  anche all'app iOS per mostrarti "ultimo controllo" in una schermata).
+- **Repository access** → solo la repo `book-radar`
+- **Permissions → Contents: Read and write** (più `Workflows: Read and write` se il token serve
+  anche al `git push` da Terminale)
 
-Inoltre la **cronologia commit** del repo (`chore: aggiorna stato e timestamp...`)
-è di per sé una prova: dovresti vederne uno nuovo ogni giorno.
+Genera da **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained**.
+Il token viene salvato **solo nel browser** (localStorage), mai nel repo.
 
 ---
 
-## Personal Access Token GitHub (per l'app iOS)
+## Usare l'interfaccia web
 
-L'app iOS modifica `authors.json` via GitHub API e ha bisogno di un token.
-**Scope minimi:**
+- **Lista autori**: mostra il contenuto di `authors.json`.
+- **Aggiungi autore**: scrivi un nome → "Cerca varianti". L'interfaccia scopre le grafie (anche
+  accentate), **verifica il conteggio reale con `inauthor`** e ti mostra i libri italiani
+  effettivi. Scegli la variante e premi "Aggiungi al repo".
+- **Rimuovi autore**: bottone "Rimuovi".
+- **Anteprima**: i libri italiani che il sistema seguirà per quell'autore.
+- **Quota**: in alto, stima delle chiamate Google usate oggi (vedi sotto).
+- **↻ Ricarica**: ri-legge `authors.json` dal repo (non lancia il controllo).
 
-- **Fine-grained token** (consigliato): Repository access → solo la repo
-  `book-radar`; Permissions → **Contents: Read and write**. Nient'altro.
-- **Token classico** (alternativa): scope **`repo`** (purtroppo è il più granulare
-  disponibile per i classici su repo private).
+Le notifiche le manda **solo lo script sul Mac**: l'interfaccia gestisce solo la lista autori.
 
-Genera da: **GitHub → Settings → Developer settings → Personal access tokens**.
-Il token va inserito nell'app (salvato in Keychain), **mai** scritto nel codice o
-nel repo.
+---
+
+## Verificare che lo script giri ogni giorno
+
+A ogni esecuzione lo script aggiorna e ripubblica nel repo:
+
+- **[`STATUS.md`](STATUS.md)** — leggibile su GitHub: data/ora ultimo controllo, esito, opere
+  monitorate, notifiche inviate, chiamate Google. Se la data non avanza, il job non sta girando.
+- **`last_run.json`** — le stesse info in formato machine-readable.
+- La **cronologia commit** (`chore: aggiorna stato e timestamp...`) è di per sé una prova.
+
+---
+
+## Quota Google
+
+La API key ha **1.000 chiamate/giorno**. La usano sia lo script (dal `.env`) sia l'interfaccia
+(dalla key salvata nel browser).
+
+- Lo script conta le sue chiamate per run e il totale giornaliero in `usage.json`, mostrato in
+  `STATUS.md` (es. *Chiamate Google oggi (script): 24 / 1000*).
+- L'interfaccia mostra una **stima** "usate oggi" = script (da `usage.json`) + interfaccia
+  (contatore nel browser). Google non espone la quota residua via API, quindi è una stima per
+  eccesso. Con un uso personale normale si resta ampiamente sotto il limite.
 
 ---
 
@@ -201,31 +233,10 @@ nel repo.
 | `python3 check.py` | Run reale: polling + Telegram + salva stato |
 | `python3 check.py --dry-run` | Simula tutto, non manda nulla, non scrive |
 | `python3 check.py --test-notification` | Manda un Telegram di prova ed esce |
-| `python3 test_filter.py` | Test del filtro di precisione |
-| `python3 test_flow.py` | Test d'integrazione offline del flusso |
+| `python3 test_filter.py` / `test_flow.py` | Test (nessuna rete) |
 | `launchctl start com.bookradar.check` | Lancia subito il job schedulato |
-| `tail -f book-radar.log` | Segui il log del job in tempo reale |
+| `tail -f book-radar.log` | Segui il log del job |
+| `launchctl unload ~/Library/LaunchAgents/com.bookradar.check.plist` | Disattiva il job |
 
-Variabili d'ambiente: `BOOK_RADAR_DRY_RUN=1` (dry-run), `BOOK_RADAR_LANG=it`
-(lingua delle edizioni, default `it`).
-
----
-
-## Aggiungere un autore a mano (senza l'app)
-
-Aggiungi un oggetto a `authors.json`:
-
-```json
-{
-  "name": "H.P. Lovecraft",
-  "canonicalAuthor": "H. P. Lovecraft",
-  "googleBooksQuery": "inauthor:\"H. P. Lovecraft\""
-}
-```
-
-- `name`: etichetta leggibile, come la scrivi tu.
-- `canonicalAuthor`: la stringa autore **esatta** come appare in Google Books.
-- `googleBooksQuery`: di norma `inauthor:"<canonicalAuthor>"`.
-
-Al prossimo run l'autore viene inizializzato (catalogo storico assorbito senza
-notifiche) e da lì in poi riceverai solo le novità.
+Variabili d'ambiente: `BOOK_RADAR_DRY_RUN=1` (dry-run), `BOOK_RADAR_LANG` (lingua edizioni,
+default `it`), `BOOK_RADAR_COUNTRY` (mercato, default `IT`).
