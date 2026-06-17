@@ -436,52 +436,73 @@ async function searchVariants() {
     }
     showMsg("addMsg", spinner("Cerco su Google Books (può richiedere qualche secondo)..."), "info");
     try {
-        const items = await gbSearchAll(input, `&langRestrict=${LANG}&country=${COUNTRY}`);
-        // Raggruppa le varianti del campo authors. Le grafie che differiscono solo
-        // per maiuscole/spazi vengono UNITE (lo script è case-insensitive).
-        const variants = {};
-        for (const v of items) {
-            const info = v.volumeInfo || {};
-            const isItalian = info.language === LANG;
-            for (const author of (info.authors || [])) {
+        // Passo 1 - SCOPERTA grafie via testo libero (Google ignora gli accenti: cercando
+        //    "Ryu" trova anche "Ryū"/"Ryü"). Serve solo a scoprire le grafie.
+        const discovered = await gbSearchAll(input, `&langRestrict=${LANG}&country=${COUNTRY}`);
+        const searchTokens = stripDiacritics(input).split(" ").filter(Boolean);
+        const groups = {};  // chiave senza diacritici -> { spellings: {grafia: frequenza} }
+        for (const v of discovered) {
+            for (const author of ((v.volumeInfo || {}).authors || [])) {
                 const key = stripDiacritics(author);
-                if (!variants[key]) {
-                    variants[key] = { count: 0, italianCount: 0, samples: [], spellings: {} };
+                // Solo autori pertinenti: il nome deve contenere tutte le parole cercate
+                // (evita di verificare traduttori/curatori comparsi nei risultati).
+                if (!searchTokens.every(t => key.includes(t))) {
+                    continue;
                 }
-                const rec = variants[key];
-                rec.count++;
-                // Per ogni grafia traccio quante edizioni totali e quante italiane,
-                // cosi' poi salvo solo le query delle grafie con edizioni italiane.
-                if (!rec.spellings[author]) { rec.spellings[author] = { total: 0, it: 0 }; }
-                rec.spellings[author].total++;
-                if (isItalian) {
-                    rec.italianCount++;
-                    rec.spellings[author].it++;
-                    if (rec.samples.length < 3 && info.title) { rec.samples.push(info.title); }
-                }
+                if (!groups[key]) { groups[key] = { spellings: {} }; }
+                groups[key].spellings[author] = (groups[key].spellings[author] || 0) + 1;
             }
         }
-        // Etichetta = grafia con più edizioni italiane (poi, a parità, più totali).
-        for (const k in variants) {
-            const sp = variants[k].spellings;
-            variants[k].name = Object.keys(sp).sort((a, b) => sp[b].it - sp[a].it || sp[b].total - sp[a].total)[0];
-        }
-        const list = Object.values(variants).sort((a, b) => b.italianCount - a.italianCount || b.count - a.count);
-        if (!list.length) {
+        let groupList = Object.values(groups);
+        if (!groupList.length) {
             showMsg("addMsg", "Nessun autore trovato. Prova un altro testo.", "error");
             return;
         }
-        showMsg("addMsg", "Scegli la variante corretta (in cima quelle con più edizioni italiane):", "info");
-        document.getElementById("variants").innerHTML = list.map((v, i) => `
+        groupList = groupList.slice(0, 6);  // limita le chiamate di verifica
+
+        // Passo 2 - VERIFICA con inauthor (la stessa query del monitoraggio) per il conteggio REALE.
+        showMsg("addMsg", spinner("Conto le edizioni italiane (può richiedere qualche secondo)..."), "info");
+        const variants = [];
+        for (const g of groupList) {
+            // Grafie distinte ignorando le maiuscole ma TENENDO i diacritici (inauthor è case-insensitive).
+            const distinct = [...new Map(Object.keys(g.spellings).map(s => [s.toLowerCase(), s])).values()];
+            const worksByTitle = new Map();
+            const italianSpellings = [];
+            for (const sp of distinct) {
+                const vols = await gbSearchAll(`inauthor:"${sp}"`, `&langRestrict=${LANG}&country=${COUNTRY}`);
+                const targetKey = stripDiacritics(sp);
+                let found = 0;
+                for (const v of vols) {
+                    const info = v.volumeInfo || {};
+                    if (info.language !== LANG) { continue; }
+                    if (!(info.authors || []).some(a => stripDiacritics(a) === targetKey)) { continue; }
+                    found++;
+                    const t = (info.title || "").trim().toLowerCase();
+                    if (t && !worksByTitle.has(t)) { worksByTitle.set(t, info.title); }
+                }
+                if (found > 0) { italianSpellings.push(sp); }
+            }
+            const label = Object.keys(g.spellings).sort((a, b) => g.spellings[b] - g.spellings[a])[0];
+            variants.push({
+                name: label,
+                spellings: italianSpellings.length ? italianSpellings : distinct.slice(0, 1),
+                italianWorks: worksByTitle.size,
+                samples: [...worksByTitle.values()].slice(0, 3),
+            });
+        }
+        variants.sort((a, b) => b.italianWorks - a.italianWorks);
+
+        showMsg("addMsg", "Scegli la variante corretta (conteggi verificati su Google Books):", "info");
+        document.getElementById("variants").innerHTML = variants.map((v, i) => `
             <label class="variant">
                 <input type="radio" name="variant" value="${i}" onchange="selectVariant(${i})" />
                 <span class="variant-name">${escapeHtml(v.name)}</span>
                 <div class="variant-meta">
-                    ${v.italianCount} ediz. IT · ${v.count} totali — ${escapeHtml(v.samples.join(" · "))}
+                    ${v.italianWorks} libri italiani${v.samples.length ? " — " + escapeHtml(v.samples.join(" · ")) : ""}
                 </div>
             </label>
         `).join("");
-        window._variantList = list;
+        window._variantList = variants;
     } catch (e) {
         showMsg("addMsg", "Errore Google Books: " + e.message, "error");
     } finally {
@@ -505,13 +526,11 @@ async function confirmAdd() {
         showMsg("addMsg", "Questo autore è già nella lista.", "error");
         return;
     }
-    // Una query inauthor solo per le grafie che hanno DAVVERO edizioni italiane
-    // (risparmia chiamate: inauthor e' sensibile agli accenti, l'OR non funziona).
-    const sp = selectedVariant.spellings || {};
-    let spellings = Object.keys(sp).filter(s => sp[s].it > 0);
-    if (!spellings.length) {
-        spellings = [canonical];  // fallback: nessuna IT, salvo almeno la grafia scelta
-    }
+    // Le grafie con edizioni italiane (già verificate con inauthor in fase di ricerca):
+    // una query inauthor per ognuna. inauthor è sensibile agli accenti e l'OR non funziona.
+    const spellings = (Array.isArray(selectedVariant.spellings) && selectedVariant.spellings.length)
+        ? selectedVariant.spellings
+        : [canonical];
     const entry = {
         name: label,
         canonicalAuthor: canonical,
