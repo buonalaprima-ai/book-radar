@@ -18,5 +18,14 @@
     "name": "Ottessa Moshfegh",
     "canonicalAuthor": "Ottessa Moshfegh",
     "googleBooksQuery": "inauthor:\"Ottessa Moshfegh\""
+  },
+  {
+    "name": "Ryu Murakami",
+    "canonicalAuthor": "Ryu Murakami",
+    "googleBooksQueries": [
+      "inauthor:\"Ryu Murakami\"",
+      "inauthor:\"Ryü Murakami\"",
+      "inauthor:\"Ryū Murakami\""
+    ]
   }
 ]
