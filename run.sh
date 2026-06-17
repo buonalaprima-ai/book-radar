@@ -4,7 +4,7 @@
 # Gira sul Mac (IP italiano) cosi' Google Books restituisce le edizioni italiane.
 #
 # Flusso:
-#   1. git pull   -> recupera eventuali modifiche di authors.json fatte dall'app iOS
+#   1. git pull   -> recupera eventuali modifiche di authors.json fatte dall'interfaccia web
 #   2. check.py   -> polling + notifiche Telegram + aggiorna lo stato locale
 #   3. git push   -> ripubblica seen_books.json/initialized_authors.json nel repo
 #

@@ -21,8 +21,9 @@ Uso tipico:
   python check.py --dry-run    # simula: stampa cosa notificherebbe, non scrive nulla
   python check.py --test-notification   # manda un messaggio Telegram di prova ed esce
 
-Bot token e chat id si leggono da variabili d'ambiente o da un file .env locale
-(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID). Opzionale: GOOGLE_BOOKS_API_KEY.
+Token, chat id e API key si leggono da variabili d'ambiente o da un file .env
+locale: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GOOGLE_BOOKS_API_KEY (necessaria,
+la quota anonima condivisa di Google e' esaurita).
 
 Dipendenze: nessuna (solo standard library).
 """
@@ -93,7 +94,7 @@ def load_dotenv(path=ROOT / ".env"):
     """
     Parser minimale per un file .env (KEY=VALUE per riga).
 
-    Non sovrascrive variabili gia presenti nell'ambiente: in CI vincono i Secrets.
+    Non sovrascrive variabili gia' presenti nell'ambiente (queste hanno priorita').
     Evita una dipendenza esterna (python-dotenv) per una cosa cosi semplice.
     """
     if not path.exists():
@@ -517,7 +518,7 @@ def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-    # Permette anche BOOK_RADAR_DRY_RUN=1 come variabile d'ambiente (comodo in CI).
+    # Permette anche BOOK_RADAR_DRY_RUN=1 come variabile d'ambiente.
     dry_run = args.dry_run or os.environ.get("BOOK_RADAR_DRY_RUN", "").lower() in ("1", "true", "yes")
 
     if args.test_notification:
