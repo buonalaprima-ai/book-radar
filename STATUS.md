@@ -1,10 +1,10 @@
 # 📚 Book Radar — stato
 
-**Ultimo controllo:** 2026-06-16 23:30:46 +0200
+**Ultimo controllo:** 2026-06-17 09:10:47 +0200
 
 - Esito: ✅ ok
-- Autori controllati: 2
-- Opere monitorate: 59
+- Autori controllati: 4
+- Opere monitorate: 72
 - Notifiche inviate in questo run: 0
 
 > File aggiornato automaticamente a ogni esecuzione dello script.
