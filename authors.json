@@ -76,5 +76,12 @@
     "googleBooksQueries": [
       "inauthor:\"Tiffany McDaniel\""
     ]
+  },
+  {
+    "name": "Shirley Jackson",
+    "canonicalAuthor": "Shirley Jackson",
+    "googleBooksQueries": [
+      "inauthor:\"Shirley Jackson\""
+    ]
   }
 ]
