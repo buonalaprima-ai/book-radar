@@ -69,5 +69,12 @@
     "googleBooksQueries": [
       "inauthor:\"Bernardo Zannoni\""
     ]
+  },
+  {
+    "name": "Tiffany McDaniel",
+    "canonicalAuthor": "Tiffany McDaniel",
+    "googleBooksQueries": [
+      "inauthor:\"Tiffany McDaniel\""
+    ]
   }
 ]
