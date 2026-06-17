@@ -33,6 +33,7 @@ import json
 import os
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -176,21 +177,30 @@ def _fetch_page(query, start_index, api_key, lang_restrict, country):
     url = f"{GOOGLE_BOOKS_ENDPOINT}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
 
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        if error.code == 429:
-            raise RuntimeError(
-                "quota Google Books esaurita (HTTP 429). "
-                "Riprova piu' tardi o configura GOOGLE_BOOKS_API_KEY."
-            ) from error
-        raise RuntimeError(f"HTTP {error.code} da Google Books: {body[:200]}") from error
-    except urllib.error.URLError as error:
-        raise RuntimeError(f"errore di rete verso Google Books: {error.reason}") from error
-
-    return payload.get("items", []) or []
+    # Google restituisce ogni tanto 503/errori di rete transitori: qualche retry.
+    last_error = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            return payload.get("items", []) or []
+        except urllib.error.HTTPError as error:
+            body = error.read().decode("utf-8", errors="replace")
+            if error.code == 429:
+                raise RuntimeError(
+                    "quota Google Books esaurita (HTTP 429). "
+                    "Riprova piu' tardi o configura GOOGLE_BOOKS_API_KEY."
+                ) from error
+            if error.code in (500, 502, 503, 504):
+                last_error = RuntimeError(f"HTTP {error.code} da Google Books (transitorio)")
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise RuntimeError(f"HTTP {error.code} da Google Books: {body[:200]}") from error
+        except urllib.error.URLError as error:
+            last_error = RuntimeError(f"errore di rete verso Google Books: {error.reason}")
+            time.sleep(1.5 * (attempt + 1))
+            continue
+    raise last_error
 
 
 def google_books_search(query, api_key=None, lang_restrict=None, country=None):
@@ -235,12 +245,23 @@ def author_matches(volume, canonical_author):
     Google Books con `inauthor:` restituisce a volte volumi di omonimi o di
     altri autori: questo filtro li scarta alla fonte.
     """
-    target = " ".join(canonical_author.lower().split())
+    target = normalize_name(canonical_author)
     authors = volume.get("volumeInfo", {}).get("authors", []) or []
     for author in authors:
-        if " ".join(author.lower().split()) == target:
+        if normalize_name(author) == target:
             return True
     return False
+
+
+def normalize_name(name):
+    """
+    Normalizza un nome autore per il confronto: rimuove i diacritici, minuscolo,
+    spazi compattati. Cosi' 'Ryū Murakami', 'Ryü Murakami' e 'Ryu Murakami'
+    risultano uguali (Google indicizza lo stesso autore con grafie diverse).
+    """
+    decomposed = unicodedata.normalize("NFD", name or "")
+    without_marks = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return " ".join(without_marks.lower().split())
 
 
 def volume_language(volume):
@@ -259,9 +280,10 @@ def work_key(canonical_author, title):
 
     Edizioni diverse con lo stesso titolo (es. ristampe) condividono la chiave,
     quindi generano una sola notifica. Lo spazio dei nomi per autore evita
-    collisioni tra autori con un titolo identico.
+    collisioni tra autori con un titolo identico. L'autore e' normalizzato senza
+    diacritici cosi' le grafie diverse condividono lo stesso spazio dei nomi.
     """
-    return f"{' '.join(canonical_author.lower().split())}::{normalize_title(title)}"
+    return f"{normalize_name(canonical_author)}::{normalize_title(title)}"
 
 
 def extract_book(volume):
@@ -355,20 +377,32 @@ def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_r
     """
     name = author.get("name", "(senza nome)")
     canonical = author.get("canonicalAuthor", "")
-    query = author.get("googleBooksQuery", "")
+    # Una o piu' query: ogni grafia dell'autore (diacritici) va interrogata a parte,
+    # perche' inauthor e' sensibile agli accenti e l'operatore OR non funziona.
+    queries = author.get("googleBooksQueries")
+    if not queries:
+        single = author.get("googleBooksQuery", "")
+        queries = [single] if single else []
 
-    if not canonical or not query:
-        log(f"  [SALTATO] '{name}': manca canonicalAuthor o googleBooksQuery.")
+    if not canonical or not queries:
+        log(f"  [SALTATO] '{name}': manca canonicalAuthor o googleBooksQuery(es).")
         return 0, True
 
     language = os.environ.get("BOOK_RADAR_LANG", DEFAULT_LANGUAGE)
     country = os.environ.get("BOOK_RADAR_COUNTRY", DEFAULT_COUNTRY)
-    log(f"  Autore: {name}  (canonical: \"{canonical}\", lingua: {language})")
+    log(f"  Autore: {name}  (canonical: \"{canonical}\", query: {len(queries)}, lingua: {language})")
 
     api_key = os.environ.get("GOOGLE_BOOKS_API_KEY")
+    volumes = []
+    collected_ids = set()
     try:
-        volumes = google_books_search(query, api_key=api_key,
-                                      lang_restrict=language, country=country)
+        for query in queries:
+            for volume in google_books_search(query, api_key=api_key,
+                                              lang_restrict=language, country=country):
+                vid = volume.get("id")
+                if vid and vid not in collected_ids:
+                    collected_ids.add(vid)
+                    volumes.append(volume)
     except RuntimeError as error:
         log(f"    [ERRORE] {error}")
         return 0, True

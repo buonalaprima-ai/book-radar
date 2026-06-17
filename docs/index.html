@@ -367,6 +367,18 @@ async function gbSearchAll(query, extra) {
     }
     return collected;
 }
+// Toglie i diacritici e normalizza: "Ryū Murakami" -> "ryu murakami".
+function stripDiacritics(s) {
+    const combiningMarks = new RegExp("[\\u0300-\\u036f]", "g");
+    return (s || "").normalize("NFD").replace(combiningMarks, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+// Le query di un autore: array nuovo (googleBooksQueries) o fallback al vecchio singolo.
+function authorQueries(a) {
+    if (Array.isArray(a.googleBooksQueries) && a.googleBooksQueries.length) {
+        return a.googleBooksQueries;
+    }
+    return a.googleBooksQuery ? [a.googleBooksQuery] : [];
+}
 async function searchVariants() {
     const input = document.getElementById("searchInput").value.trim();
     document.getElementById("variants").innerHTML = "";
@@ -385,7 +397,7 @@ async function searchVariants() {
             const info = v.volumeInfo || {};
             const isItalian = info.language === LANG;
             for (const author of (info.authors || [])) {
-                const key = author.trim().toLowerCase().replace(/\s+/g, " ");
+                const key = stripDiacritics(author);
                 if (!variants[key]) {
                     variants[key] = { count: 0, italianCount: 0, samples: [], spellings: {} };
                 }
@@ -436,14 +448,17 @@ async function confirmAdd() {
     }
     const label = document.getElementById("labelInput").value.trim() || selectedVariant.name;
     const canonical = selectedVariant.name;
-    if (authors.some(a => a.canonicalAuthor === canonical)) {
+    if (authors.some(a => stripDiacritics(a.canonicalAuthor) === stripDiacritics(canonical))) {
         showMsg("addMsg", "Questo autore è già nella lista.", "error");
         return;
     }
+    // Una query inauthor per OGNI grafia (diacritici): inauthor e' sensibile agli
+    // accenti e l'OR non funziona, quindi le interroghiamo tutte e lo script unisce.
+    const spellings = Object.keys(selectedVariant.spellings || { [canonical]: 1 });
     const entry = {
         name: label,
         canonicalAuthor: canonical,
-        googleBooksQuery: `inauthor:"${canonical}"`,
+        googleBooksQueries: spellings.map(s => `inauthor:"${s}"`),
     };
     showMsg("addMsg", spinner("Aggiungo e aggiorno il repo..."), "info");
     const updated = authors.concat([entry]);
@@ -466,16 +481,22 @@ async function previewAuthor(index) {
     const card = document.getElementById("previewCard");
     card.style.display = "block";
     document.getElementById("previewTitle").textContent = `Anteprima — ${a.name}`;
-    document.getElementById("previewBody").innerHTML = spinner("Carico i libri italiani...");
+    document.getElementById("previewBody").innerHTML = spinner("Carico i libri italiani (può richiedere qualche secondo)...");
     card.scrollIntoView({ behavior: "smooth" });
     try {
-        const res = await fetch(gbUrl(a.googleBooksQuery, `&langRestrict=${LANG}&country=${COUNTRY}`));
-        const data = await res.json();
+        // Interroga TUTTE le query dell'autore (una per grafia), paginando, e unisce.
+        const target = stripDiacritics(a.canonicalAuthor);
+        const byId = new Map();
+        for (const q of authorQueries(a)) {
+            for (const v of await gbSearchAll(q, `&langRestrict=${LANG}&country=${COUNTRY}`)) {
+                if (v.id) { byId.set(v.id, v); }
+            }
+        }
         const seen = new Set();
         const books = [];
-        for (const v of (data.items || [])) {
+        for (const v of byId.values()) {
             const info = v.volumeInfo || {};
-            const exact = (info.authors || []).some(au => au.trim().toLowerCase() === a.canonicalAuthor.trim().toLowerCase());
+            const exact = (info.authors || []).some(au => stripDiacritics(au) === target);
             if (info.language !== LANG || !exact) {
                 continue;
             }

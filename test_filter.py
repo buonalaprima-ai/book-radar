@@ -13,6 +13,7 @@ from check import (
     author_matches,
     extract_book,
     format_message,
+    normalize_name,
     normalize_title,
     volume_language,
     work_key,
@@ -41,6 +42,19 @@ def test_match_spazi_extra_normalizzati():
 def test_match_tra_piu_autori():
     # Volume con piu' autori: basta che il canonico sia presente.
     assert author_matches(_volume(["Mario Rossi", "John Niven"]), "John Niven")
+
+
+def test_match_diacritici():
+    # Stesso autore con grafie diverse (macron/umlaut) deve combaciare.
+    assert author_matches(_volume(["Ryū Murakami"]), "Ryu Murakami")
+    assert author_matches(_volume(["Ryü Murakami"]), "Ryu Murakami")
+    assert author_matches(_volume(["Ryu Murakami"]), "Ryū Murakami")
+
+
+def test_normalize_name_diacritici():
+    assert normalize_name("Ryū Murakami") == "ryu murakami"
+    assert normalize_name("Ryü Murakami") == "ryu murakami"
+    assert normalize_name("  RYU   Murakami ") == "ryu murakami"
 
 
 # MARK: - Casi che NON devono passare (falsi positivi da scartare)
