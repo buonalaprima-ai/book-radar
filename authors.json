@@ -48,5 +48,12 @@
     "googleBooksQueries": [
       "inauthor:\"Gian Marco Griffi\""
     ]
+  },
+  {
+    "name": "Paul Murray",
+    "canonicalAuthor": "Paul Murray",
+    "googleBooksQueries": [
+      "inauthor:\"Paul Murray\""
+    ]
   }
 ]
