@@ -41,5 +41,12 @@
     "googleBooksQueries": [
       "inauthor:\"Sally Rooney\""
     ]
+  },
+  {
+    "name": "Gian Marco Griffi",
+    "canonicalAuthor": "Gian Marco Griffi",
+    "googleBooksQueries": [
+      "inauthor:\"Gian Marco Griffi\""
+    ]
   }
 ]
