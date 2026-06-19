@@ -32,6 +32,7 @@ import argparse
 import html
 import json
 import os
+import socket
 import sys
 import time
 import unicodedata
@@ -230,6 +231,12 @@ def _fetch_page(query, start_index, api_key, lang_restrict, country):
             raise RuntimeError(f"HTTP {error.code} da Google Books: {body[:200]}") from error
         except urllib.error.URLError as error:
             last_error = RuntimeError(f"errore di rete verso Google Books: {error.reason}")
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        except (TimeoutError, socket.timeout) as error:
+            # Una richiesta che si blocca solleva socket.timeout, che NON e' una
+            # URLError: senza questo except crasherebbe l'intero script.
+            last_error = RuntimeError("timeout di rete verso Google Books")
             time.sleep(1.5 * (attempt + 1))
             continue
     raise last_error
@@ -543,7 +550,13 @@ def main():
     total_sent = 0
     had_errors = False
     for index, author in enumerate(authors):
-        sent, error = process_author(author, seen_keys, initialized_authors, token, chat_id, dry_run)
+        # Rete di sicurezza: un errore imprevisto su un autore non deve far crashare
+        # l'intera run (altrimenti lo stato/STATUS non verrebbero salvati).
+        try:
+            sent, error = process_author(author, seen_keys, initialized_authors, token, chat_id, dry_run)
+        except Exception as unexpected:  # noqa: BLE001
+            log(f"  [ERRORE IMPREVISTO] {author.get('name', '?')}: {unexpected}")
+            sent, error = 0, True
         total_sent += sent
         had_errors = had_errors or error
         if index < len(authors) - 1:
