@@ -36,10 +36,27 @@ fi
 # 3. Ripubblica lo stato. last_run.json/STATUS.md cambiano a ogni run (timestamp),
 #    quindi normalmente c'e' sempre almeno un commit: e' il "battito" giornaliero
 #    che conferma dal repo che lo script ha girato.
-git add seen_books.json initialized_authors.json last_run.json STATUS.md usage.json
-if [ -n "$(git status --porcelain seen_books.json initialized_authors.json last_run.json STATUS.md usage.json)" ]; then
-    git commit -q -m "chore: aggiorna stato e timestamp ultimo controllo [skip ci]"
-    git push -q && echo "[run.sh] Stato ripubblicato sul repo." || echo "[run.sh] git push fallito."
-else
+STATE_FILES="seen_books.json initialized_authors.json last_run.json STATUS.md usage.json"
+git add $STATE_FILES
+if [ -z "$(git status --porcelain $STATE_FILES)" ]; then
     echo "[run.sh] Nessuna modifica di stato da pubblicare."
+    exit 0
+fi
+git commit -q -m "chore: aggiorna stato e timestamp ultimo controllo [skip ci]"
+
+# Push ROBUSTO: l'interfaccia web puo' aver fatto avanzare il remoto (race), quindi
+# prima di ogni tentativo riallineo con pull --rebase, poi pusho. Ritento alcune volte.
+pushed=0
+for attempt in 1 2 3 4 5; do
+    git pull --rebase --autostash --quiet 2>/dev/null || git rebase --abort 2>/dev/null
+    if git push -q 2>/dev/null; then
+        pushed=1
+        echo "[run.sh] Stato ripubblicato sul repo (tentativo $attempt)."
+        break
+    fi
+    echo "[run.sh] push tentativo $attempt fallito, riprovo..."
+    sleep 3
+done
+if [ "$pushed" -ne 1 ]; then
+    echo "[run.sh] *** git push fallito dopo i tentativi: lo stato locale e' aggiornato ma non pubblicato."
 fi
