@@ -44,10 +44,12 @@ if [ -z "$(git status --porcelain $STATE_FILES)" ]; then
 fi
 git commit -q -m "chore: aggiorna stato e timestamp ultimo controllo [skip ci]"
 
-# Push ROBUSTO: l'interfaccia web puo' aver fatto avanzare il remoto (race), quindi
-# prima di ogni tentativo riallineo con pull --rebase, poi pusho. Ritento alcune volte.
+# Push: l'elemento essenziale e' fare 'pull --rebase' SUBITO PRIMA del push (durante
+# i ~60s di check.py l'interfaccia web puo' aver fatto avanzare il remoto). Un paio di
+# tentativi coprono il caso raro in cui il remoto si muove di nuovo tra il pull e il push,
+# o una rete momentaneamente ballerina. Oltre non servirebbe: ripullare e' gia' incluso.
 pushed=0
-for attempt in 1 2 3 4 5; do
+for attempt in 1 2 3; do
     git pull --rebase --autostash --quiet 2>/dev/null || git rebase --abort 2>/dev/null
     if git push -q 2>/dev/null; then
         pushed=1
@@ -58,5 +60,5 @@ for attempt in 1 2 3 4 5; do
     sleep 3
 done
 if [ "$pushed" -ne 1 ]; then
-    echo "[run.sh] *** git push fallito dopo i tentativi: lo stato locale e' aggiornato ma non pubblicato."
+    echo "[run.sh] *** git push fallito: lo stato locale e' aggiornato ma non pubblicato (riprovera' domani)."
 fi
