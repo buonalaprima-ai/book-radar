@@ -32,6 +32,7 @@ import argparse
 import html
 import json
 import os
+import re
 import socket
 import sys
 import time
@@ -39,7 +40,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # MARK: - Costanti
@@ -63,6 +64,11 @@ DEFAULT_LANGUAGE = "it"
 
 # Mercato Google Books, per orientare i risultati. Override: env BOOK_RADAR_COUNTRY.
 DEFAULT_COUNTRY = "IT"
+
+# Finestra di "novita'": si notifica solo un'opera pubblicata negli ultimi N giorni.
+# Le opere piu' vecchie che riaffiorano (per l'incoerenza dei risultati Google) vengono
+# assorbite in silenzio, senza notificare. Override: env BOOK_RADAR_RECENCY_DAYS.
+DEFAULT_RECENCY_DAYS = 365
 
 ROOT = Path(__file__).resolve().parent
 AUTHORS_FILE = ROOT / "authors.json"
@@ -325,6 +331,29 @@ def work_key(canonical_author, title):
     return f"{normalize_name(canonical_author)}::{normalize_title(title)}"
 
 
+def is_recent_release(published_date, today=None):
+    """
+    True se la data di pubblicazione e' recente (entro DEFAULT_RECENCY_DAYS) o futura.
+
+    Parsing tollerante: 'YYYY', 'YYYY-MM', 'YYYY-MM-DD'. Se manca il mese/giorno usa
+    la fine del periodo (piu' inclusiva). Data assente/illeggibile -> True (nel dubbio
+    si notifica, per non perdere una vera uscita).
+    """
+    days = int(os.environ.get("BOOK_RADAR_RECENCY_DAYS", DEFAULT_RECENCY_DAYS))
+    today = today or datetime.now().astimezone().date()
+    match = re.match(r"\s*(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?", published_date or "")
+    if not match:
+        return True
+    year = int(match.group(1))
+    month = int(match.group(2)) if match.group(2) else 12
+    day = int(match.group(3)) if match.group(3) else 28
+    try:
+        published = date(year, min(max(month, 1), 12), min(max(day, 1), 28))
+    except ValueError:
+        return True
+    return published >= (today - timedelta(days=days))
+
+
 def extract_book(volume):
     """Estrae i campi che ci interessano da un volume Google Books."""
     info = volume.get("volumeInfo", {})
@@ -471,12 +500,24 @@ def process_author(author, seen_keys, initialized_authors, token, chat_id, dry_r
         log(f"    [INIT] Inizializzato con {len(works)} opere esistenti. Nessuna notifica inviata.")
         return 0, False
 
-    # Autore gia' inizializzato: novita' = opere mai viste prima.
+    # Autore gia' inizializzato: opere mai viste prima.
     new_works = [(key, book) for key, book in works.items() if key not in seen_keys]
-    log(f"    Novita': {len(new_works)}")
+
+    # IMPORTANTE: per autori prolifici Google restituisce a ogni run un sottoinsieme
+    # leggermente diverso del catalogo, quindi vecchie opere possono "ricomparire".
+    # Notifichiamo SOLO le uscite con data recente; le opere vecchie che riaffiorano
+    # vengono assorbite nel visto in SILENZIO (backfill), senza spammare.
+    recent = [(k, b) for k, b in new_works if is_recent_release(b["published_date"])]
+    backfill = [(k, b) for k, b in new_works if not is_recent_release(b["published_date"])]
+
+    for key, _ in backfill:
+        seen_keys.add(key)
+    if backfill:
+        log(f"    Backfill silenzioso (opere non recenti riaffiorate): {len(backfill)}")
+    log(f"    Novita' recenti: {len(recent)}")
 
     sent = 0
-    for key, book in new_works:
+    for key, book in recent:
         log(f"    -> NOVITA': \"{book['title']}\" ({book['published_date']})")
         if send_telegram(token, chat_id, format_message(book), dry_run=dry_run):
             seen_keys.add(key)

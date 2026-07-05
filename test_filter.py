@@ -9,10 +9,13 @@ Non fa chiamate di rete: lavora su volumi finti che imitano la forma della
 risposta Google Books.
 """
 
+from datetime import date
+
 from check import (
     author_matches,
     extract_book,
     format_message,
+    is_recent_release,
     normalize_name,
     normalize_title,
     volume_language,
@@ -112,6 +115,23 @@ def test_format_message_escape_html():
     assert "&amp;" in message
     assert "&lt;test&gt;" in message
     assert "<b>" in message  # il grassetto del titolo resta intatto
+
+
+# MARK: - Filtro data (novita' recenti vs backfill silenzioso)
+
+def test_is_recent_release():
+    oggi = date(2026, 6, 19)
+    # Vecchie (oltre 365 giorni) -> NON recenti (backfill silenzioso)
+    assert not is_recent_release("2014-04-29", today=oggi)
+    assert not is_recent_release("2000", today=oggi)
+    assert not is_recent_release("2024-06-12", today=oggi)
+    # Recenti o future -> recenti (si notifica)
+    assert is_recent_release("2026-05-01", today=oggi)
+    assert is_recent_release("2026", today=oggi)
+    assert is_recent_release("2027-01-01", today=oggi)
+    # Data assente/illeggibile -> recente (nel dubbio si notifica)
+    assert is_recent_release("", today=oggi)
+    assert is_recent_release("data sconosciuta", today=oggi)
 
 
 # MARK: - Lingua e chiave opera
