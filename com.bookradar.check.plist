@@ -18,7 +18,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/matteopuccinelli/book-radar/run.sh</string>
+        <string>/Users/matteopuccinelli/ai-projects/book-radar/run.sh</string>
     </array>
 
     <key>StartCalendarInterval</key>
@@ -30,8 +30,8 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/matteopuccinelli/book-radar/launchd.out.log</string>
+    <string>/Users/matteopuccinelli/ai-projects/book-radar/launchd.out.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/matteopuccinelli/book-radar/launchd.err.log</string>
+    <string>/Users/matteopuccinelli/ai-projects/book-radar/launchd.err.log</string>
 </dict>
 </plist>
