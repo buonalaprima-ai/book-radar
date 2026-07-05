@@ -1,11 +1,11 @@
 {
-  "last_run": "2026-06-29 09:06:18 +0200",
-  "last_run_iso": "2026-06-29T09:06:18+02:00",
-  "outcome": "ok",
+  "last_run": "2026-07-05 11:10:46 +0200",
+  "last_run_iso": "2026-07-05T11:10:46+02:00",
+  "outcome": "errori durante il run",
   "authors_checked": 13,
-  "works_tracked": 131,
-  "notifications_sent": 0,
-  "google_calls_this_run": 59,
-  "google_calls_today": 59,
+  "works_tracked": 156,
+  "notifications_sent": 25,
+  "google_calls_this_run": 71,
+  "google_calls_today": 71,
   "google_daily_quota": 1000
 }
