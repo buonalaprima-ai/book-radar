@@ -55,8 +55,10 @@ MAX_RESULTS = 40
 # ~320 risultati; in pratica ci si ferma prima quando i risultati si esauriscono.
 MAX_PAGES = 8
 
-# Piccola pausa tra le chiamate per non martellare l'API condivisa.
-REQUEST_DELAY_SECONDS = 0.5
+# Pausa tra le richieste HTTP: Google Books limita le richieste a breve termine e
+# risponde 503 se lo martelliamo. Con molti autori (tante pagine per run) 0.5s era
+# troppo poco; 1.2s tiene il ritmo sotto la soglia.
+REQUEST_DELAY_SECONDS = 1.2
 
 # Lingua delle edizioni da notificare (ISO 639-1). Override: env BOOK_RADAR_LANG.
 # Solo i volumi con volumeInfo.language esattamente uguale vengono considerati.
@@ -157,18 +159,27 @@ def update_usage(now, calls):
     return usage[today]
 
 
-def write_status(authors_count, works_tracked, notifications_sent, had_errors, run_calls, today_calls):
+def write_status(authors_count, works_tracked, notifications_sent, error_count, run_calls, today_calls):
     """
     Scrive last_run.json (machine) e STATUS.md (leggibile su GitHub) con il
     timestamp dell'ultima esecuzione e un riepilogo. Viene aggiornato a OGNI
     run (anche senza novita'), cosi' dal repo si vede che lo script gira.
+
+    `error_count` = autori saltati per errori transitori di Google (503/timeout):
+    non sono un guasto del sistema, vengono ritentati alla run successiva.
     """
     now = datetime.now().astimezone()
+    if error_count:
+        outcome = (f"{error_count} autori saltati per errori temporanei di Google "
+                   f"(503/timeout) — verranno ricontrollati domani")
+    else:
+        outcome = "ok"
     status = {
         "last_run": now.strftime("%Y-%m-%d %H:%M:%S %z"),
         "last_run_iso": now.isoformat(timespec="seconds"),
-        "outcome": "errori durante il run" if had_errors else "ok",
+        "outcome": outcome,
         "authors_checked": authors_count,
+        "authors_skipped": error_count,
         "works_tracked": works_tracked,
         "notifications_sent": notifications_sent,
         "google_calls_this_run": run_calls,
@@ -177,7 +188,7 @@ def write_status(authors_count, works_tracked, notifications_sent, had_errors, r
     }
     save_json(STATUS_JSON_FILE, status)
 
-    outcome_icon = "⚠️" if had_errors else "✅"
+    outcome_icon = "⚠️" if error_count else "✅"
     markdown = (
         "# 📚 Book Radar — stato\n\n"
         f"**Ultimo controllo:** {status['last_run']}\n\n"
@@ -216,7 +227,7 @@ def _fetch_page(query, start_index, api_key, lang_restrict, country):
 
     # Google restituisce ogni tanto 503/errori di rete transitori: qualche retry.
     last_error = None
-    for attempt in range(3):
+    for attempt in range(5):
         global google_call_count
         google_call_count += 1  # ogni richiesta HTTP consuma una unita' di quota
         try:
@@ -232,18 +243,18 @@ def _fetch_page(query, start_index, api_key, lang_restrict, country):
                 ) from error
             if error.code in (500, 502, 503, 504):
                 last_error = RuntimeError(f"HTTP {error.code} da Google Books (transitorio)")
-                time.sleep(1.5 * (attempt + 1))
+                time.sleep(2 * (attempt + 1))
                 continue
             raise RuntimeError(f"HTTP {error.code} da Google Books: {body[:200]}") from error
         except urllib.error.URLError as error:
             last_error = RuntimeError(f"errore di rete verso Google Books: {error.reason}")
-            time.sleep(1.5 * (attempt + 1))
+            time.sleep(2 * (attempt + 1))
             continue
         except (TimeoutError, socket.timeout) as error:
             # Una richiesta che si blocca solleva socket.timeout, che NON e' una
             # URLError: senza questo except crasherebbe l'intero script.
             last_error = RuntimeError("timeout di rete verso Google Books")
-            time.sleep(1.5 * (attempt + 1))
+            time.sleep(2 * (attempt + 1))
             continue
     raise last_error
 
@@ -259,13 +270,23 @@ def google_books_search(query, api_key=None, lang_restrict=None, country=None):
     catalogo raggiungibile, quindi l'ordine inaffidabile non conta piu'.
 
     `lang_restrict` e `country` orientano i risultati (sono solo suggerimenti: il
-    filtro rigido per lingua lo fa il chiamante). Solleva RuntimeError su errore.
+    filtro rigido per lingua lo fa il chiamante).
+
+    Solleva RuntimeError solo se fallisce la PRIMA pagina (nessun risultato). Se
+    fallisce una pagina successiva, restituisce cio' che ha gia' raccolto: meglio
+    una copertura parziale che saltare l'autore e buttare le pagine gia' scaricate.
     """
     collected = []
     seen_ids = set()
     start = 0
     for _ in range(MAX_PAGES):
-        items = _fetch_page(query, start, api_key, lang_restrict, country)
+        try:
+            items = _fetch_page(query, start, api_key, lang_restrict, country)
+        except RuntimeError:
+            if not collected:
+                raise  # prima pagina fallita: nessun dato, propaga l'errore
+            log(f"    [AVVISO] pagina fallita a meta', uso i {len(collected)} volumi gia' presi.")
+            break
         if not items:
             break  # pagina vuota: risultati esauriti
         added = 0
@@ -589,7 +610,7 @@ def main():
     log("")
 
     total_sent = 0
-    had_errors = False
+    error_count = 0
     for index, author in enumerate(authors):
         # Rete di sicurezza: un errore imprevisto su un autore non deve far crashare
         # l'intera run (altrimenti lo stato/STATUS non verrebbero salvati).
@@ -599,7 +620,8 @@ def main():
             log(f"  [ERRORE IMPREVISTO] {author.get('name', '?')}: {unexpected}")
             sent, error = 0, True
         total_sent += sent
-        had_errors = had_errors or error
+        if error:
+            error_count += 1
         if index < len(authors) - 1:
             time.sleep(REQUEST_DELAY_SECONDS)
 
@@ -615,7 +637,7 @@ def main():
     save_json(SEEN_FILE, sorted(seen_keys))
     save_json(INITIALIZED_FILE, sorted(initialized_authors))
     today_calls = update_usage(datetime.now().astimezone(), google_call_count)
-    write_status(len(authors), len(seen_keys), total_sent, had_errors, google_call_count, today_calls)
+    write_status(len(authors), len(seen_keys), total_sent, error_count, google_call_count, today_calls)
     log(f"Chiamate Google oggi (script): {today_calls} / {GOOGLE_DAILY_QUOTA}")
     log("Stato salvato (seen_books.json, initialized_authors.json, last_run.json, STATUS.md, usage.json).")
 
