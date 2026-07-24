@@ -1,12 +1,12 @@
 {
-  "last_run": "2026-07-23 10:06:05 +0200",
-  "last_run_iso": "2026-07-23T10:06:05+02:00",
-  "outcome": "1 autori saltati per errori temporanei di Google (503/timeout) — verranno ricontrollati domani",
+  "last_run": "2026-07-24 09:09:09 +0200",
+  "last_run_iso": "2026-07-24T09:09:09+02:00",
+  "outcome": "ok",
   "authors_checked": 13,
-  "authors_skipped": 1,
+  "authors_skipped": 0,
   "works_tracked": 158,
   "notifications_sent": 0,
-  "google_calls_this_run": 120,
-  "google_calls_today": 120,
+  "google_calls_this_run": 127,
+  "google_calls_today": 127,
   "google_daily_quota": 1000
 }
