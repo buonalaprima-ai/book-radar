@@ -1,13 +1,13 @@
 # 📚 Book Radar — stato
 
-**Ultimo controllo:** 2026-08-09 11:46:32 +0200
+**Ultimo controllo:** 2026-08-10 09:22:20 +0200
 
-- Esito: ⚠️ 1 autori saltati per errori temporanei di Google (503/timeout) — verranno ricontrollati domani
+- Esito: ✅ ok
 - Autori controllati: 13
 - Opere monitorate: 181
 - Notifiche inviate in questo run: 0
-- Chiamate Google in questo run: 85
-- Chiamate Google oggi (script): 85 / 1000
+- Chiamate Google in questo run: 87
+- Chiamate Google oggi (script): 87 / 1000
 
 > File aggiornato automaticamente a ogni esecuzione dello script.
 > Se questa data non avanza di giorno in giorno, il job sul Mac non sta girando.
