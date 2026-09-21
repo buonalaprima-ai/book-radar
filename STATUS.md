@@ -1,6 +1,6 @@
 # 📚 Book Radar — stato
 
-**Ultimo controllo:** 2026-09-20 11:11:01 +0200
+**Ultimo controllo:** 2026-09-21 09:18:15 +0200
 
 - Esito: ✅ ok
 - Autori controllati: 13
