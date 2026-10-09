@@ -1,12 +1,12 @@
 {
-  "last_run": "2026-10-08 09:45:37 +0200",
-  "last_run_iso": "2026-10-08T09:45:37+02:00",
+  "last_run": "2026-10-09 09:23:07 +0200",
+  "last_run_iso": "2026-10-09T09:23:07+02:00",
   "outcome": "ok",
   "authors_checked": 13,
   "authors_skipped": 0,
   "works_tracked": 188,
   "notifications_sent": 0,
-  "google_calls_this_run": 46,
-  "google_calls_today": 46,
+  "google_calls_this_run": 32,
+  "google_calls_today": 32,
   "google_daily_quota": 1000
 }
