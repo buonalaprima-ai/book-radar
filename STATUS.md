@@ -1,8 +1,8 @@
 # 📚 Book Radar — stato
 
-**Ultimo controllo:** 2026-11-13 09:31:36 +0100
+**Ultimo controllo:** 2026-11-14 09:48:25 +0100
 
-- Esito: ✅ ok
+- Esito: ⚠️ 1 autori saltati per errori temporanei di Google (503/timeout) — verranno ricontrollati domani
 - Autori controllati: 13
 - Opere monitorate: 188
 - Notifiche inviate in questo run: 0
